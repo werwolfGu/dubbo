@@ -16,40 +16,47 @@
  */
 package org.apache.dubbo.rpc.protocol.dubbo;
 
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.config.Configuration;
+import org.apache.dubbo.common.config.ConfigurationUtils;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.common.serialize.Cleanable;
 import org.apache.dubbo.common.serialize.ObjectInput;
+import org.apache.dubbo.common.utils.ArrayUtils;
 import org.apache.dubbo.common.utils.Assert;
 import org.apache.dubbo.common.utils.StringUtils;
 import org.apache.dubbo.remoting.Channel;
 import org.apache.dubbo.remoting.Codec;
+import org.apache.dubbo.remoting.Constants;
 import org.apache.dubbo.remoting.Decodeable;
 import org.apache.dubbo.remoting.exchange.Response;
 import org.apache.dubbo.remoting.transport.CodecSupport;
+import org.apache.dubbo.rpc.AppResponse;
 import org.apache.dubbo.rpc.Invocation;
-import org.apache.dubbo.rpc.RpcResult;
 import org.apache.dubbo.rpc.support.RpcUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Type;
-import java.util.Map;
 
-public class DecodeableRpcResult extends RpcResult implements Codec, Decodeable {
+import static org.apache.dubbo.common.constants.CommonConstants.SystemProperty.SERIALIZATION_SECURITY_CHECK_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.PROTOCOL_FAILED_DECODE;
+import static org.apache.dubbo.rpc.Constants.SERIALIZATION_ID_KEY;
 
-    private static final Logger log = LoggerFactory.getLogger(DecodeableRpcResult.class);
+public class DecodeableRpcResult extends AppResponse implements Codec, Decodeable {
 
-    private Channel channel;
+    private static final ErrorTypeAwareLogger log = LoggerFactory.getErrorTypeAwareLogger(DecodeableRpcResult.class);
 
-    private byte serializationType;
+    private final Channel channel;
 
-    private InputStream inputStream;
+    private final byte serializationType;
 
-    private Response response;
+    private final InputStream inputStream;
 
-    private Invocation invocation;
+    private final Response response;
+
+    private final Invocation invocation;
 
     private volatile boolean hasDecoded;
 
@@ -71,66 +78,44 @@ public class DecodeableRpcResult extends RpcResult implements Codec, Decodeable 
 
     @Override
     public Object decode(Channel channel, InputStream input) throws IOException {
-        ObjectInput in = CodecSupport.getSerialization(channel.getUrl(), serializationType)
-                .deserialize(channel.getUrl(), input);
-        
+        if (log.isDebugEnabled()) {
+            Thread thread = Thread.currentThread();
+            log.debug("Decoding in thread -- [" + thread.getName() + "#" + thread.getId() + "]");
+        }
+
+        int contentLength = input.available();
+        setAttribute(Constants.CONTENT_LENGTH_KEY, contentLength);
+
+        // switch TCCL
+        if (invocation != null && invocation.getServiceModel() != null) {
+            Thread.currentThread()
+                    .setContextClassLoader(invocation.getServiceModel().getClassLoader());
+        }
+        ObjectInput in = CodecSupport.getSerialization(serializationType).deserialize(channel.getUrl(), input);
+
         byte flag = in.readByte();
         switch (flag) {
             case DubboCodec.RESPONSE_NULL_VALUE:
                 break;
             case DubboCodec.RESPONSE_VALUE:
-                try {
-                    Type[] returnType = RpcUtils.getReturnTypes(invocation);
-                    setValue(returnType == null || returnType.length == 0 ? in.readObject() :
-                            (returnType.length == 1 ? in.readObject((Class<?>) returnType[0])
-                                    : in.readObject((Class<?>) returnType[0], returnType[1])));
-                } catch (ClassNotFoundException e) {
-                    throw new IOException(StringUtils.toString("Read response data failed.", e));
-                }
+                handleValue(in);
                 break;
             case DubboCodec.RESPONSE_WITH_EXCEPTION:
-                try {
-                    Object obj = in.readObject();
-                    if (obj instanceof Throwable == false) {
-                        throw new IOException("Response data error, expect Throwable, but get " + obj);
-                    }
-                    setException((Throwable) obj);
-                } catch (ClassNotFoundException e) {
-                    throw new IOException(StringUtils.toString("Read response data failed.", e));
-                }
+                handleException(in);
                 break;
             case DubboCodec.RESPONSE_NULL_VALUE_WITH_ATTACHMENTS:
-                try {
-                    setAttachments((Map<String, String>) in.readObject(Map.class));
-                } catch (ClassNotFoundException e) {
-                    throw new IOException(StringUtils.toString("Read response data failed.", e));
-                }
+                handleAttachment(in);
                 break;
             case DubboCodec.RESPONSE_VALUE_WITH_ATTACHMENTS:
-                try {
-                    Type[] returnType = RpcUtils.getReturnTypes(invocation);
-                    setValue(returnType == null || returnType.length == 0 ? in.readObject() :
-                            (returnType.length == 1 ? in.readObject((Class<?>) returnType[0])
-                                    : in.readObject((Class<?>) returnType[0], returnType[1])));
-                    setAttachments((Map<String, String>) in.readObject(Map.class));
-                } catch (ClassNotFoundException e) {
-                    throw new IOException(StringUtils.toString("Read response data failed.", e));
-                }
+                handleValue(in);
+                handleAttachment(in);
                 break;
             case DubboCodec.RESPONSE_WITH_EXCEPTION_WITH_ATTACHMENTS:
-                try {
-                    Object obj = in.readObject();
-                    if (obj instanceof Throwable == false) {
-                        throw new IOException("Response data error, expect Throwable, but get " + obj);
-                    }
-                    setException((Throwable) obj);
-                    setAttachments((Map<String, String>) in.readObject(Map.class));
-                } catch (ClassNotFoundException e) {
-                    throw new IOException(StringUtils.toString("Read response data failed.", e));
-                }
+                handleException(in);
+                handleAttachment(in);
                 break;
             default:
-                throw new IOException("Unknown result flag, expect '0' '1' '2', get " + flag);
+                throw new IOException("Unknown result flag, expect '0' '1' '2' '3' '4' '5', but received: " + flag);
         }
         if (in instanceof Cleanable) {
             ((Cleanable) in).cleanup();
@@ -142,10 +127,33 @@ public class DecodeableRpcResult extends RpcResult implements Codec, Decodeable 
     public void decode() throws Exception {
         if (!hasDecoded && channel != null && inputStream != null) {
             try {
+                if (invocation != null) {
+                    Configuration systemConfiguration = null;
+                    try {
+                        systemConfiguration = ConfigurationUtils.getSystemConfiguration(
+                                channel.getUrl().getScopeModel());
+                    } catch (Exception e) {
+                        // Because the Environment may be destroyed during the offline process, the configuration cannot
+                        // be obtained.
+                        // Exceptions are ignored here, and normal decoding is guaranteed.
+                    }
+
+                    if (systemConfiguration == null
+                            || systemConfiguration.getBoolean(SERIALIZATION_SECURITY_CHECK_KEY, true)) {
+                        Object serializationTypeObj = invocation.get(SERIALIZATION_ID_KEY);
+                        if (serializationTypeObj != null) {
+                            if ((byte) serializationTypeObj != serializationType) {
+                                throw new IOException("Unexpected serialization id:" + serializationType
+                                        + " received from network, please check if the peer send the right id.");
+                            }
+                        }
+                    }
+                }
+
                 decode(channel, inputStream);
             } catch (Throwable e) {
                 if (log.isWarnEnabled()) {
-                    log.warn("Decode rpc result failed: " + e.getMessage(), e);
+                    log.warn(PROTOCOL_FAILED_DECODE, "", "", "Decode rpc result failed: " + e.getMessage(), e);
                 }
                 response.setStatus(Response.CLIENT_ERROR);
                 response.setErrorMessage(StringUtils.toString(e));
@@ -155,4 +163,41 @@ public class DecodeableRpcResult extends RpcResult implements Codec, Decodeable 
         }
     }
 
+    private void handleValue(ObjectInput in) throws IOException {
+        try {
+            Type[] returnTypes = RpcUtils.getReturnTypes(invocation);
+            Object value;
+            if (ArrayUtils.isEmpty(returnTypes)) {
+                // happens when generic invoke or void return
+                value = in.readObject();
+            } else if (returnTypes.length == 1) {
+                value = in.readObject((Class<?>) returnTypes[0]);
+            } else {
+                value = in.readObject((Class<?>) returnTypes[0], returnTypes[1]);
+            }
+            setValue(value);
+        } catch (ClassNotFoundException e) {
+            rethrow(e);
+        }
+    }
+
+    private void handleException(ObjectInput in) throws IOException {
+        try {
+            setException(in.readThrowable());
+        } catch (ClassNotFoundException e) {
+            rethrow(e);
+        }
+    }
+
+    private void handleAttachment(ObjectInput in) throws IOException {
+        try {
+            addObjectAttachments(in.readAttachments());
+        } catch (ClassNotFoundException e) {
+            rethrow(e);
+        }
+    }
+
+    private void rethrow(Exception e) throws IOException {
+        throw new IOException(StringUtils.toString("Read response data failed.", e));
+    }
 }

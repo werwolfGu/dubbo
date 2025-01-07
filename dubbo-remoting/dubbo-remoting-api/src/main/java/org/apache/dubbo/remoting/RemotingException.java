@@ -22,8 +22,7 @@ import java.net.InetSocketAddress;
  * RemotingException. (API, Prototype, ThreadSafe)
  *
  * @export
- * @see org.apache.dubbo.remoting.exchange.ResponseFuture#get()
- * @see org.apache.dubbo.remoting.exchange.ResponseFuture#get(int)
+ * @see org.apache.dubbo.remoting.exchange.support.DefaultFuture#get()
  * @see org.apache.dubbo.remoting.Channel#send(Object, boolean)
  * @see org.apache.dubbo.remoting.exchange.ExchangeChannel#request(Object)
  * @see org.apache.dubbo.remoting.exchange.ExchangeChannel#request(Object, int)
@@ -39,7 +38,9 @@ public class RemotingException extends Exception {
     private InetSocketAddress remoteAddress;
 
     public RemotingException(Channel channel, String msg) {
-        this(channel == null ? null : channel.getLocalAddress(), channel == null ? null : channel.getRemoteAddress(),
+        this(
+                channel == null ? null : channel.getLocalAddress(),
+                channel == null ? null : channel.getRemoteAddress(),
                 msg);
     }
 
@@ -51,7 +52,9 @@ public class RemotingException extends Exception {
     }
 
     public RemotingException(Channel channel, Throwable cause) {
-        this(channel == null ? null : channel.getLocalAddress(), channel == null ? null : channel.getRemoteAddress(),
+        this(
+                channel == null ? null : channel.getLocalAddress(),
+                channel == null ? null : channel.getRemoteAddress(),
                 cause);
     }
 
@@ -63,12 +66,15 @@ public class RemotingException extends Exception {
     }
 
     public RemotingException(Channel channel, String message, Throwable cause) {
-        this(channel == null ? null : channel.getLocalAddress(), channel == null ? null : channel.getRemoteAddress(),
-                message, cause);
+        this(
+                channel == null ? null : channel.getLocalAddress(),
+                channel == null ? null : channel.getRemoteAddress(),
+                message,
+                cause);
     }
 
-    public RemotingException(InetSocketAddress localAddress, InetSocketAddress remoteAddress, String message,
-                             Throwable cause) {
+    public RemotingException(
+            InetSocketAddress localAddress, InetSocketAddress remoteAddress, String message, Throwable cause) {
         super(message, cause);
 
         this.localAddress = localAddress;

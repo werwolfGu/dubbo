@@ -3,7 +3,7 @@
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License")); you may not use this file except in compliance with
+ * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
@@ -17,29 +17,31 @@
 package org.apache.dubbo.rpc.cluster.loadbalance;
 
 import org.apache.dubbo.rpc.Invoker;
-import org.junit.Assert;
-import org.junit.Ignore;
-import org.junit.Test;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class LeastActiveBalanceTest extends LoadBalanceBaseTest {
-    @Ignore
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
+
+class LeastActiveBalanceTest extends LoadBalanceBaseTest {
+    @Disabled
     @Test
-    public void testLeastActiveLoadBalance_select() {
+    void testLeastActiveLoadBalance_select() {
         int runs = 10000;
         Map<Invoker, AtomicLong> counter = getInvokeCounter(runs, LeastActiveLoadBalance.NAME);
-        for (Invoker minvoker : counter.keySet()) {
-            Long count = counter.get(minvoker).get();
+        for (Map.Entry<Invoker, AtomicLong> entry : counter.entrySet()) {
+            Long count = entry.getValue().get();
             //            System.out.println(count);
-            Assert.assertTrue("abs diff shoud < avg",
-                    Math.abs(count - runs / (0f + invokers.size())) < runs / (0f + invokers.size()));
+            Assertions.assertTrue(
+                    Math.abs(count - runs / (0f + invokers.size())) < runs / (0f + invokers.size()),
+                    "abs diff should < avg");
         }
     }
 
     @Test
-    public void testSelectByWeight() {
+    void testSelectByWeight() {
         int sumInvoker1 = 0;
         int sumInvoker2 = 0;
         int loop = 10000;
@@ -56,13 +58,14 @@ public class LeastActiveBalanceTest extends LoadBalanceBaseTest {
                 sumInvoker2++;
             }
             // never select invoker3 because it's active is more than invoker1 and invoker2
-            Assert.assertTrue("select is not the least active one", !selected.getUrl().getProtocol().equals("test3"));
+            Assertions.assertTrue(
+                    !selected.getUrl().getProtocol().equals("test3"), "select is not the least active one");
         }
 
         // the sumInvoker1 : sumInvoker2 approximately equal to 1: 9
         System.out.println(sumInvoker1);
         System.out.println(sumInvoker2);
 
-        Assert.assertEquals("select failed!", sumInvoker1 + sumInvoker2, loop);
+        Assertions.assertEquals(sumInvoker1 + sumInvoker2, loop, "select failed!");
     }
 }

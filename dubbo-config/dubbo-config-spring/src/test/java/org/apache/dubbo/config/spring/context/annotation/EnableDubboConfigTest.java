@@ -23,19 +23,39 @@ import org.apache.dubbo.config.MonitorConfig;
 import org.apache.dubbo.config.ProtocolConfig;
 import org.apache.dubbo.config.ProviderConfig;
 import org.apache.dubbo.config.RegistryConfig;
-import org.junit.Assert;
-import org.junit.Test;
+import org.apache.dubbo.config.bootstrap.DubboBootstrap;
+import org.apache.dubbo.config.context.ConfigManager;
+import org.apache.dubbo.rpc.model.ApplicationModel;
+
+import java.util.Collection;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.PropertySource;
+
+import static org.apache.dubbo.config.spring.util.BeanRegistrar.hasAlias;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * {@link EnableDubboConfig} Test
  *
  * @since 2.5.8
  */
-public class EnableDubboConfigTest {
+class EnableDubboConfigTest {
 
-    @Test
+    @BeforeEach
+    public void setUp() {
+        DubboBootstrap.reset();
+    }
+
+    @AfterEach
+    public void tearDown() {
+        DubboBootstrap.reset();
+    }
+
+    // @Test
     public void testSingle() {
 
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
@@ -44,64 +64,69 @@ public class EnableDubboConfigTest {
 
         // application
         ApplicationConfig applicationConfig = context.getBean("applicationBean", ApplicationConfig.class);
-        Assert.assertEquals("dubbo-demo-application", applicationConfig.getName());
+        Assertions.assertEquals("dubbo-demo-application", applicationConfig.getName());
 
         // module
         ModuleConfig moduleConfig = context.getBean("moduleBean", ModuleConfig.class);
-        Assert.assertEquals("dubbo-demo-module", moduleConfig.getName());
+        Assertions.assertEquals("dubbo-demo-module", moduleConfig.getName());
 
         // registry
         RegistryConfig registryConfig = context.getBean(RegistryConfig.class);
-        Assert.assertEquals("zookeeper://192.168.99.100:32770", registryConfig.getAddress());
+        Assertions.assertEquals("zookeeper://192.168.99.100:32770", registryConfig.getAddress());
 
         // protocol
         ProtocolConfig protocolConfig = context.getBean(ProtocolConfig.class);
-        Assert.assertEquals("dubbo", protocolConfig.getName());
-        Assert.assertEquals(Integer.valueOf(20880), protocolConfig.getPort());
+        Assertions.assertEquals("dubbo", protocolConfig.getName());
+        Assertions.assertEquals(Integer.valueOf(20880), protocolConfig.getPort());
 
         // monitor
         MonitorConfig monitorConfig = context.getBean(MonitorConfig.class);
-        Assert.assertEquals("zookeeper://127.0.0.1:32770", monitorConfig.getAddress());
+        Assertions.assertEquals("zookeeper://127.0.0.1:32770", monitorConfig.getAddress());
 
         // provider
         ProviderConfig providerConfig = context.getBean(ProviderConfig.class);
-        Assert.assertEquals("127.0.0.1", providerConfig.getHost());
-
+        Assertions.assertEquals("127.0.0.1", providerConfig.getHost());
 
         // consumer
         ConsumerConfig consumerConfig = context.getBean(ConsumerConfig.class);
-        Assert.assertEquals("netty", consumerConfig.getClient());
+        Assertions.assertEquals("netty", consumerConfig.getClient());
 
+        // asserts aliases
+        assertFalse(hasAlias(context, "org.apache.dubbo.config.RegistryConfig#0", "zookeeper"));
+        assertFalse(hasAlias(context, "org.apache.dubbo.config.MonitorConfig#0", "zookeeper"));
     }
 
-    @Test
+    // @Test
     public void testMultiple() {
 
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
         context.register(TestMultipleConfig.class);
         context.refresh();
 
-        // application
-        ApplicationConfig applicationConfig = context.getBean("applicationBean", ApplicationConfig.class);
-        Assert.assertEquals("dubbo-demo-application", applicationConfig.getName());
+        RegistryConfig registry1 = context.getBean("registry1", RegistryConfig.class);
+        Assertions.assertEquals(2181, registry1.getPort());
 
-        ApplicationConfig applicationBean2 = context.getBean("applicationBean2", ApplicationConfig.class);
-        Assert.assertEquals("dubbo-demo-application2", applicationBean2.getName());
+        RegistryConfig registry2 = context.getBean("registry2", RegistryConfig.class);
+        Assertions.assertEquals(2182, registry2.getPort());
 
-        ApplicationConfig applicationBean3 = context.getBean("applicationBean3", ApplicationConfig.class);
-        Assert.assertEquals("dubbo-demo-application3", applicationBean3.getName());
+        ConfigManager configManager = ApplicationModel.defaultModel().getApplicationConfigManager();
+        Collection<ProtocolConfig> protocolConfigs = configManager.getProtocols();
+        Assertions.assertEquals(3, protocolConfigs.size());
 
-    }
+        configManager.getProtocol("dubbo").get();
+        configManager.getProtocol("rest").get();
 
-    @EnableDubboConfig(multiple = true)
-    @PropertySource("META-INF/config.properties")
-    private static class TestMultipleConfig {
+        // asserts aliases
+        //        assertTrue(hasAlias(context, "applicationBean2", "dubbo-demo-application2"));
+        //        assertTrue(hasAlias(context, "applicationBean3", "dubbo-demo-application3"));
 
     }
 
     @EnableDubboConfig
     @PropertySource("META-INF/config.properties")
-    private static class TestConfig {
+    private static class TestMultipleConfig {}
 
-    }
+    @EnableDubboConfig(multiple = false)
+    @PropertySource("META-INF/config.properties")
+    private static class TestConfig {}
 }

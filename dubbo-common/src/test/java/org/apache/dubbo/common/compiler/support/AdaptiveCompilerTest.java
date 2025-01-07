@@ -16,18 +16,21 @@
  */
 package org.apache.dubbo.common.compiler.support;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.apache.dubbo.rpc.model.FrameworkModel;
 
-public class AdaptiveCompilerTest extends JavaCodeTest {
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+class AdaptiveCompilerTest extends JavaCodeTest {
 
     @Test
-    public void testAvailableCompiler() throws Exception {
+    void testAvailableCompiler() throws Exception {
         AdaptiveCompiler.setDefaultCompiler("jdk");
         AdaptiveCompiler compiler = new AdaptiveCompiler();
-        Class<?> clazz = compiler.compile(getSimpleCode(), AdaptiveCompiler.class.getClassLoader());
-        HelloService helloService = (HelloService) clazz.newInstance();
-        Assert.assertEquals("Hello world!", helloService.sayHello());
+        compiler.setFrameworkModel(FrameworkModel.defaultModel());
+        Class<?> clazz = compiler.compile(JavaCodeTest.class, getSimpleCode(), AdaptiveCompiler.class.getClassLoader());
+        HelloService helloService =
+                (HelloService) clazz.getDeclaredConstructor().newInstance();
+        Assertions.assertEquals("Hello world!", helloService.sayHello());
     }
-
 }

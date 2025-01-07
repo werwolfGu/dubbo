@@ -14,31 +14,42 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.dubbo.config;
 
+import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.service.DemoService;
 import org.apache.dubbo.service.DemoServiceImpl;
 
 import com.alibaba.dubbo.config.ApplicationConfig;
-import com.alibaba.dubbo.config.RegistryConfig;
 import com.alibaba.dubbo.config.ProtocolConfig;
-import com.alibaba.dubbo.config.ServiceConfig;
 import com.alibaba.dubbo.config.ReferenceConfig;
+import com.alibaba.dubbo.config.RegistryConfig;
+import com.alibaba.dubbo.config.ServiceConfig;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import org.junit.Test;
+class ReferenceConfigTest {
+    private ApplicationConfig application = new ApplicationConfig();
+    private RegistryConfig registry = new RegistryConfig();
+    private ProtocolConfig protocol = new ProtocolConfig();
 
-public class ReferenceConfigTest {
+    @BeforeEach
+    public void setUp() {
+        DubboBootstrap.reset();
+    }
+
+    @AfterEach
+    public void tearDown() {
+        DubboBootstrap.reset();
+    }
 
     @Test
-    public void testInjvm() throws Exception {
-        ApplicationConfig application = new ApplicationConfig();
-        application.setName("test-protocol-random-port");
+    void testInjvm() throws Exception {
 
-        RegistryConfig registry = new RegistryConfig();
+        application.setName("test-protocol-random-port");
         registry.setAddress("multicast://224.5.6.7:1234");
 
-        ProtocolConfig protocol = new ProtocolConfig();
         protocol.setName("dubbo");
 
         ServiceConfig<DemoService> demoService;
@@ -55,11 +66,17 @@ public class ReferenceConfigTest {
         rc.setInterface(DemoService.class.getName());
         rc.setInjvm(false);
 
+        DubboBootstrap bootstrap = DubboBootstrap.getInstance()
+                .application(application)
+                .registry(registry)
+                .protocol(protocol)
+                .service(demoService)
+                .reference(rc);
+
         try {
-            demoService.export();
-            rc.get();
+            bootstrap.start();
         } finally {
-            demoService.unexport();
+            bootstrap.stop();
         }
     }
 }

@@ -16,22 +16,22 @@
  */
 package org.apache.dubbo.config.spring.context.annotation.provider;
 
+import org.apache.dubbo.config.annotation.DubboService;
 import org.apache.dubbo.config.spring.api.HelloService;
+
 import org.springframework.stereotype.Service;
 
 /**
  * Default {@link HelloService} annotation with Spring's {@link Service}
  * and Dubbo's {@link org.apache.dubbo.config.annotation.Service}
  *
- * @since TODO
  */
 @Service
-@org.apache.dubbo.config.annotation.Service
+@DubboService
 public class DefaultHelloService implements HelloService {
 
     @Override
     public String sayHello(String name) {
         return "Greeting, " + name;
     }
-
 }

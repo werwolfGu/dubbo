@@ -17,56 +17,50 @@
 package org.apache.dubbo.config.spring.status;
 
 import org.apache.dubbo.common.status.Status;
-import org.apache.dubbo.config.spring.ServiceBean;
-import org.apache.dubbo.config.spring.extension.SpringExtensionFactory;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.Mock;
-import org.mockito.Mockito;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.Lifecycle;
+import org.springframework.web.context.support.GenericWebApplicationContext;
 
 import static org.hamcrest.CoreMatchers.is;
-import static org.junit.Assert.assertThat;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
-import static org.mockito.MockitoAnnotations.initMocks;
 
-public class SpringStatusCheckerTest {
-    private SpringStatusChecker springStatusChecker;
+class SpringStatusCheckerTest {
 
-    @Mock
-    private ApplicationContext applicationContext;
+    //    @Mock
+    //    private ApplicationLifeCycle applicationContext;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
-        initMocks(this);
-        this.springStatusChecker = new SpringStatusChecker();
-        new ServiceBean<Object>().setApplicationContext(applicationContext);
+        // initMocks(this);
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
-        SpringExtensionFactory.clearContexts();
-        Mockito.reset(applicationContext);
+        // Mockito.reset(applicationContext);
     }
 
     @Test
-    public void testWithoutApplicationContext() {
+    void testWithoutApplicationContext() {
+        SpringStatusChecker springStatusChecker = new SpringStatusChecker((ApplicationContext) null);
         Status status = springStatusChecker.check();
 
         assertThat(status.getLevel(), is(Status.Level.UNKNOWN));
     }
 
     @Test
-    public void testWithLifeCycleRunning() {
-        SpringExtensionFactory.clearContexts();
+    void testWithLifeCycleRunning() {
         ApplicationLifeCycle applicationLifeCycle = mock(ApplicationLifeCycle.class);
-        new ServiceBean<Object>().setApplicationContext(applicationLifeCycle);
-        given(applicationLifeCycle.getConfigLocations()).willReturn(new String[]{"test1", "test2"});
+        given(applicationLifeCycle.getConfigLocations()).willReturn(new String[] {"test1", "test2"});
         given(applicationLifeCycle.isRunning()).willReturn(true);
 
+        SpringStatusChecker springStatusChecker = new SpringStatusChecker(applicationLifeCycle);
         Status status = springStatusChecker.check();
 
         assertThat(status.getLevel(), is(Status.Level.OK));
@@ -74,12 +68,11 @@ public class SpringStatusCheckerTest {
     }
 
     @Test
-    public void testWithoutLifeCycleRunning() {
-        SpringExtensionFactory.clearContexts();
+    void testWithoutLifeCycleRunning() {
         ApplicationLifeCycle applicationLifeCycle = mock(ApplicationLifeCycle.class);
-        new ServiceBean<Object>().setApplicationContext(applicationLifeCycle);
         given(applicationLifeCycle.isRunning()).willReturn(false);
 
+        SpringStatusChecker springStatusChecker = new SpringStatusChecker(applicationLifeCycle);
         Status status = springStatusChecker.check();
 
         assertThat(status.getLevel(), is(Status.Level.ERROR));
@@ -87,5 +80,16 @@ public class SpringStatusCheckerTest {
 
     interface ApplicationLifeCycle extends Lifecycle, ApplicationContext {
         String[] getConfigLocations();
+    }
+
+    // TODO improve GenericWebApplicationContext test scenario
+    @Test
+    void testGenericWebApplicationContext() {
+        GenericWebApplicationContext context = mock(GenericWebApplicationContext.class);
+        given(context.isRunning()).willReturn(true);
+
+        SpringStatusChecker checker = new SpringStatusChecker(context);
+        Status status = checker.check();
+        Assertions.assertEquals(Status.Level.OK, status.getLevel());
     }
 }

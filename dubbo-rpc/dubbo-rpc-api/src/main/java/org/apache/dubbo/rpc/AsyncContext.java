@@ -16,8 +16,6 @@
  */
 package org.apache.dubbo.rpc;
 
-import java.util.concurrent.CompletableFuture;
-
 /**
  * AsyncContext works like {@see javax.servlet.AsyncContext} in the Servlet 3.0.
  * An AsyncContext is stated by a call to {@link RpcContext#startAsync()}.
@@ -28,13 +26,6 @@ import java.util.concurrent.CompletableFuture;
 public interface AsyncContext {
 
     /**
-     * get the internal future which is binding to this async context
-     *
-     * @return the internal future
-     */
-    CompletableFuture getInternalFuture();
-
-    /**
      * write value and complete the async context.
      *
      * @param value invoke result
@@ -42,7 +33,7 @@ public interface AsyncContext {
     void write(Object value);
 
     /**
-     * @return true if the aysnc context is started
+     * @return true if the async context is started
      */
     boolean isAsyncStarted();
 
@@ -83,4 +74,50 @@ public interface AsyncContext {
      * </code>
      */
     void signalContextSwitch();
+
+    /**
+     * Reset Context is not necessary. Only reset context after result was write back if it is necessary.
+     *
+     * <code>
+     * public class AsyncServiceImpl implements AsyncService {
+     * public String sayHello(String name) {
+     * final AsyncContext asyncContext = RpcContext.startAsync();
+     * new Thread(() -> {
+     * <p>
+     * // the right place to use this method
+     * asyncContext.signalContextSwitch();
+     * <p>
+     * try {
+     * Thread.sleep(500);
+     * } catch (InterruptedException e) {
+     * e.printStackTrace();
+     * }
+     * asyncContext.write("Hello " + name + ", response from provider.");
+     * // only reset after asyncContext.write()
+     * asyncContext.resetContext();
+     * }).start();
+     * return null;
+     * }
+     * }
+     * </code>
+     *
+     * <code>
+     * public class AsyncServiceImpl implements AsyncService {
+     * public CompletableFuture sayHello(String name) {
+     * CompletableFuture future = new CompletableFuture();
+     * final AsyncContext asyncContext = RpcContext.startAsync();
+     * new Thread(() -> {
+     * // the right place to use this method
+     * asyncContext.signalContextSwitch();
+     * // some operations...
+     * future.complete();
+     * // only reset after future.complete()
+     * asyncContext.resetContext();
+     * }).start();
+     * return future;
+     * }
+     * }
+     * </code>
+     */
+    void resetContext();
 }

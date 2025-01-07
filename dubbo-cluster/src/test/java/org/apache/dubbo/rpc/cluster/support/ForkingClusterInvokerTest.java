@@ -17,23 +17,23 @@
 package org.apache.dubbo.rpc.cluster.support;
 
 import org.apache.dubbo.common.URL;
+import org.apache.dubbo.rpc.AppResponse;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Result;
+import org.apache.dubbo.rpc.RpcContext;
 import org.apache.dubbo.rpc.RpcException;
 import org.apache.dubbo.rpc.RpcInvocation;
-import org.apache.dubbo.rpc.RpcResult;
-import org.apache.dubbo.rpc.RpcContext;
 import org.apache.dubbo.rpc.cluster.Directory;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.Assert.assertFalse;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -41,23 +41,24 @@ import static org.mockito.Mockito.mock;
  * ForkingClusterInvokerTest
  */
 @SuppressWarnings("unchecked")
-public class ForkingClusterInvokerTest {
+class ForkingClusterInvokerTest {
 
-    private List<Invoker<ForkingClusterInvokerTest>> invokers = new ArrayList<Invoker<ForkingClusterInvokerTest>>();
+    private List<Invoker<ForkingClusterInvokerTest>> invokers = new ArrayList<>();
     private URL url = URL.valueOf("test://test:11/test?forks=2");
     private Invoker<ForkingClusterInvokerTest> invoker1 = mock(Invoker.class);
     private Invoker<ForkingClusterInvokerTest> invoker2 = mock(Invoker.class);
     private Invoker<ForkingClusterInvokerTest> invoker3 = mock(Invoker.class);
     private RpcInvocation invocation = new RpcInvocation();
     private Directory<ForkingClusterInvokerTest> dic;
-    private Result result = new RpcResult();
+    private Result result = new AppResponse();
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
 
         dic = mock(Directory.class);
 
         given(dic.getUrl()).willReturn(url);
+        given(dic.getConsumerUrl()).willReturn(url);
         given(dic.list(invocation)).willReturn(invokers);
         given(dic.getInterface()).willReturn(ForkingClusterInvokerTest.class);
 
@@ -66,7 +67,6 @@ public class ForkingClusterInvokerTest {
         invokers.add(invoker1);
         invokers.add(invoker2);
         invokers.add(invoker3);
-
     }
 
     private void resetInvokerToException() {
@@ -104,53 +104,66 @@ public class ForkingClusterInvokerTest {
     }
 
     @Test
-    public void testInvokeException() {
+    void testInvokeException() {
         resetInvokerToException();
-        ForkingClusterInvoker<ForkingClusterInvokerTest> invoker = new ForkingClusterInvoker<ForkingClusterInvokerTest>(
-                dic);
+        ForkingClusterInvoker<ForkingClusterInvokerTest> invoker = new ForkingClusterInvoker<>(dic);
 
         try {
             invoker.invoke(invocation);
-            Assert.fail();
+            Assertions.fail();
         } catch (RpcException expected) {
-            Assert.assertTrue(expected.getMessage().contains("Failed to forking invoke provider"));
+            Assertions.assertTrue(expected.getMessage().contains("Failed to forking invoke provider"));
             assertFalse(expected.getCause() instanceof RpcException);
         }
     }
 
     @Test
-    public void testClearRpcContext() {
+    void testClearRpcContext() {
         resetInvokerToException();
-        ForkingClusterInvoker<ForkingClusterInvokerTest> invoker = new ForkingClusterInvoker<ForkingClusterInvokerTest>(
-                dic);
+        ForkingClusterInvoker<ForkingClusterInvokerTest> invoker = new ForkingClusterInvoker<>(dic);
 
         String attachKey = "attach";
         String attachValue = "value";
 
-        RpcContext.getContext().setAttachment(attachKey, attachValue);
+        RpcContext.getClientAttachment().setAttachment(attachKey, attachValue);
 
-        Map<String, String> attachments = RpcContext.getContext().getAttachments();
-        Assert.assertTrue("set attachment failed!", attachments != null && attachments.size() == 1);
+        Map<String, Object> attachments = RpcContext.getClientAttachment().getObjectAttachments();
+        Assertions.assertTrue(attachments != null && attachments.size() == 1, "set attachment failed!");
         try {
             invoker.invoke(invocation);
-            Assert.fail();
+            Assertions.fail();
         } catch (RpcException expected) {
-            Assert.assertTrue("Succeeded to forking invoke provider !", expected.getMessage().contains("Failed to forking invoke provider"));
+            Assertions.assertTrue(
+                    expected.getMessage().contains("Failed to forking invoke provider"),
+                    "Succeeded to forking invoke provider !");
             assertFalse(expected.getCause() instanceof RpcException);
         }
-        Map<String, String> afterInvoke = RpcContext.getContext().getAttachments();
-        Assert.assertTrue("clear attachment failed!", afterInvoke != null && afterInvoke.size() == 0);
+        Map<String, Object> afterInvoke = RpcContext.getClientAttachment().getObjectAttachments();
+        Assertions.assertTrue(afterInvoke != null && afterInvoke.size() == 0, "clear attachment failed!");
     }
 
-    @Test()
-    public void testInvokeNoException() {
+    @Test
+    void testInvokeNoException() {
 
         resetInvokerToNoException();
 
-        ForkingClusterInvoker<ForkingClusterInvokerTest> invoker = new ForkingClusterInvoker<ForkingClusterInvokerTest>(
-                dic);
+        ForkingClusterInvoker<ForkingClusterInvokerTest> invoker = new ForkingClusterInvoker<>(dic);
         Result ret = invoker.invoke(invocation);
-        Assert.assertSame(result, ret);
+        Assertions.assertSame(result, ret);
     }
 
+    @Test
+    void testInvokeWithIllegalForksParam() {
+        URL url = URL.valueOf("test://test:11/test?forks=-1");
+        given(dic.getUrl()).willReturn(url);
+        given(dic.getConsumerUrl()).willReturn(url);
+        given(invoker1.invoke(invocation)).willReturn(result);
+        given(invoker1.getUrl()).willReturn(url);
+        given(invoker1.isAvailable()).willReturn(true);
+        given(invoker1.getInterface()).willReturn(ForkingClusterInvokerTest.class);
+
+        ForkingClusterInvoker<ForkingClusterInvokerTest> invoker = new ForkingClusterInvoker<>(dic);
+        Result ret = invoker.invoke(invocation);
+        Assertions.assertSame(result, ret);
+    }
 }

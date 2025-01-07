@@ -14,11 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.dubbo.remoting.exchange.support.header;
 
+import org.apache.dubbo.common.timer.HashedWheelTimer;
 import org.apache.dubbo.common.timer.Timeout;
-import org.apache.dubbo.common.timer.Timer;
 import org.apache.dubbo.common.timer.TimerTask;
 import org.apache.dubbo.remoting.Channel;
 
@@ -31,52 +30,70 @@ import java.util.concurrent.TimeUnit;
 public abstract class AbstractTimerTask implements TimerTask {
 
     private final ChannelProvider channelProvider;
+    private final HashedWheelTimer hashedWheelTimer;
 
     private final Long tick;
 
-    AbstractTimerTask(ChannelProvider channelProvider, Long tick) {
-        if (channelProvider == null || tick == null) {
+    protected volatile boolean cancel = false;
+
+    private volatile Timeout timeout;
+
+    AbstractTimerTask(ChannelProvider channelProvider, HashedWheelTimer hashedWheelTimer, Long tick) {
+        if (channelProvider == null || hashedWheelTimer == null || tick == null) {
             throw new IllegalArgumentException();
         }
-        this.tick = tick;
         this.channelProvider = channelProvider;
+        this.hashedWheelTimer = hashedWheelTimer;
+        this.tick = tick;
+        start();
     }
 
     static Long lastRead(Channel channel) {
-        return (Long) channel.getAttribute(HeaderExchangeHandler.KEY_READ_TIMESTAMP);
+        return (Long) channel.getAttribute(HeartbeatHandler.KEY_READ_TIMESTAMP);
     }
 
     static Long lastWrite(Channel channel) {
-        return (Long) channel.getAttribute(HeaderExchangeHandler.KEY_WRITE_TIMESTAMP);
+        return (Long) channel.getAttribute(HeartbeatHandler.KEY_WRITE_TIMESTAMP);
     }
 
     static Long now() {
         return System.currentTimeMillis();
     }
 
-    private void reput(Timeout timeout, Long tick) {
-        if (timeout == null || tick == null) {
+    private void start() {
+        this.timeout = hashedWheelTimer.newTimeout(this, tick, TimeUnit.MILLISECONDS);
+    }
+
+    public synchronized void cancel() {
+        this.cancel = true;
+        this.timeout.cancel();
+    }
+
+    private synchronized void reput(Timeout timeout) {
+        if (timeout == null) {
             throw new IllegalArgumentException();
         }
 
-        Timer timer = timeout.timer();
-        if (timer.isStop() || timeout.isCancelled()) {
+        if (cancel) {
             return;
         }
 
-        timer.newTimeout(timeout.task(), tick, TimeUnit.MILLISECONDS);
+        if (hashedWheelTimer.isStop() || timeout.isCancelled()) {
+            return;
+        }
+
+        this.timeout = hashedWheelTimer.newTimeout(timeout.task(), tick, TimeUnit.MILLISECONDS);
     }
 
     @Override
-    public void run(Timeout timeout) throws Exception {
-        Collection<Channel> c = channelProvider.getChannels();
-        for (Channel channel : c) {
-            if (channel.isClosed()) {
-                continue;
+    public synchronized void run(Timeout timeout) throws Exception {
+        Collection<Channel> channels = channelProvider.getChannels();
+        for (Channel channel : channels) {
+            if (!channel.isClosed()) {
+                doTask(channel);
             }
-            doTask(channel);
         }
-        reput(timeout, tick);
+        reput(timeout);
     }
 
     protected abstract void doTask(Channel channel);

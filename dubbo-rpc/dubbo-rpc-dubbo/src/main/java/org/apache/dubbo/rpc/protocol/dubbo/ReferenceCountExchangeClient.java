@@ -16,18 +16,22 @@
  */
 package org.apache.dubbo.rpc.protocol.dubbo;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.Parameters;
 import org.apache.dubbo.common.URL;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
+import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.remoting.ChannelHandler;
 import org.apache.dubbo.remoting.RemotingException;
 import org.apache.dubbo.remoting.exchange.ExchangeClient;
 import org.apache.dubbo.remoting.exchange.ExchangeHandler;
-import org.apache.dubbo.remoting.exchange.ResponseFuture;
 
 import java.net.InetSocketAddress;
-import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.apache.dubbo.common.constants.CommonConstants.DEFAULT_SERVER_SHUTDOWN_TIMEOUT;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.PROTOCOL_FAILED_REQUEST;
 
 /**
  * dubbo protocol support class.
@@ -35,22 +39,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 @SuppressWarnings("deprecation")
 final class ReferenceCountExchangeClient implements ExchangeClient {
 
+    private static final ErrorTypeAwareLogger logger =
+            LoggerFactory.getErrorTypeAwareLogger(ReferenceCountExchangeClient.class);
     private final URL url;
-    private final AtomicInteger refenceCount = new AtomicInteger(0);
-
-    //    private final ExchangeHandler handler;
-    private final ConcurrentMap<String, LazyConnectExchangeClient> ghostClientMap;
+    private final AtomicInteger referenceCount = new AtomicInteger(0);
+    private final AtomicInteger disconnectCount = new AtomicInteger(0);
+    private static final Integer warningPeriod = 50;
     private ExchangeClient client;
+    private int shutdownWaitTime = DEFAULT_SERVER_SHUTDOWN_TIMEOUT;
 
-
-    public ReferenceCountExchangeClient(ExchangeClient client, ConcurrentMap<String, LazyConnectExchangeClient> ghostClientMap) {
+    public ReferenceCountExchangeClient(ExchangeClient client, String codec) {
         this.client = client;
-        refenceCount.incrementAndGet();
+        this.referenceCount.incrementAndGet();
         this.url = client.getUrl();
-        if (ghostClientMap == null) {
-            throw new IllegalStateException("ghostClientMap can not be null, url: " + url);
-        }
-        this.ghostClientMap = ghostClientMap;
     }
 
     @Override
@@ -59,7 +60,7 @@ final class ReferenceCountExchangeClient implements ExchangeClient {
     }
 
     @Override
-    public ResponseFuture request(Object request) throws RemotingException {
+    public CompletableFuture<Object> request(Object request) throws RemotingException {
         return client.request(request);
     }
 
@@ -79,8 +80,19 @@ final class ReferenceCountExchangeClient implements ExchangeClient {
     }
 
     @Override
-    public ResponseFuture request(Object request, int timeout) throws RemotingException {
+    public CompletableFuture<Object> request(Object request, int timeout) throws RemotingException {
         return client.request(request, timeout);
+    }
+
+    @Override
+    public CompletableFuture<Object> request(Object request, ExecutorService executor) throws RemotingException {
+        return client.request(request, executor);
+    }
+
+    @Override
+    public CompletableFuture<Object> request(Object request, int timeout, ExecutorService executor)
+            throws RemotingException {
+        return client.request(request, timeout, executor);
     }
 
     @Override
@@ -148,13 +160,15 @@ final class ReferenceCountExchangeClient implements ExchangeClient {
 
     @Override
     public void close(int timeout) {
-        if (refenceCount.decrementAndGet() <= 0) {
+        if (referenceCount.decrementAndGet() <= 0) {
             if (timeout == 0) {
                 client.close();
+
             } else {
                 client.close(timeout);
             }
-            client = replaceWithLazyClient();
+
+            replaceWithLazyClient();
         }
     }
 
@@ -163,24 +177,27 @@ final class ReferenceCountExchangeClient implements ExchangeClient {
         client.startClose();
     }
 
-    // ghost client
-    private LazyConnectExchangeClient replaceWithLazyClient() {
-        // this is a defensive operation to avoid client is closed by accident, the initial state of the client is false
-        URL lazyUrl = url.addParameter(Constants.LAZY_CONNECT_INITIAL_STATE_KEY, Boolean.FALSE)
-                .addParameter(Constants.RECONNECT_KEY, Boolean.FALSE)
-                .addParameter(Constants.SEND_RECONNECT_KEY, Boolean.TRUE.toString())
-                .addParameter("warning", Boolean.TRUE.toString())
-                .addParameter(LazyConnectExchangeClient.REQUEST_WITH_WARNING_KEY, true)
-                .addParameter("_client_memo", "referencecounthandler.replacewithlazyclient");
-
-        String key = url.getAddress();
-        // in worst case there's only one ghost connection.
-        LazyConnectExchangeClient gclient = ghostClientMap.get(key);
-        if (gclient == null || gclient.isClosed()) {
-            gclient = new LazyConnectExchangeClient(lazyUrl, client.getExchangeHandler());
-            ghostClientMap.put(key, gclient);
+    /**
+     * when closing the client, the client needs to be set to LazyConnectExchangeClient, and if a new call is made,
+     * the client will "resurrect".
+     *
+     * @return
+     */
+    private void replaceWithLazyClient() {
+        // start warning at second replaceWithLazyClient()
+        if (disconnectCount.getAndIncrement() % warningPeriod == 1) {
+            logger.warn(
+                    PROTOCOL_FAILED_REQUEST,
+                    "",
+                    "",
+                    url.getAddress() + " " + url.getServiceKey()
+                            + " safe guard client , should not be called ,must have a bug.");
         }
-        return gclient;
+
+        // the order of judgment in the if statement cannot be changed.
+        if (!(client instanceof LazyConnectExchangeClient)) {
+            client = new LazyConnectExchangeClient(url, client.getExchangeHandler());
+        }
     }
 
     @Override
@@ -188,7 +205,22 @@ final class ReferenceCountExchangeClient implements ExchangeClient {
         return client.isClosed();
     }
 
+    /**
+     * The reference count of current ExchangeClient, connection will be closed if all invokers destroyed.
+     */
     public void incrementAndGetCount() {
-        refenceCount.incrementAndGet();
+        referenceCount.incrementAndGet();
+    }
+
+    public int getCount() {
+        return referenceCount.get();
+    }
+
+    public int getShutdownWaitTime() {
+        return shutdownWaitTime;
+    }
+
+    public void setShutdownWaitTime(int shutdownWaitTime) {
+        this.shutdownWaitTime = shutdownWaitTime;
     }
 }

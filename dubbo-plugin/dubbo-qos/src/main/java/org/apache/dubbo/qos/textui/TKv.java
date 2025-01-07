@@ -28,21 +28,19 @@ public class TKv implements TComponent {
     private final TTable tTable;
 
     public TKv() {
-        this.tTable = new TTable(new TTable.ColumnDefine[]{
-                new TTable.ColumnDefine(TTable.Align.RIGHT),
-                new TTable.ColumnDefine(TTable.Align.RIGHT),
-                new TTable.ColumnDefine(TTable.Align.LEFT)
-        })
+        this.tTable = new TTable(new TTable.ColumnDefine[] {
+                    new TTable.ColumnDefine(TTable.Align.RIGHT),
+                    new TTable.ColumnDefine(TTable.Align.RIGHT),
+                    new TTable.ColumnDefine(TTable.Align.LEFT)
+                })
                 .padding(0);
         this.tTable.getBorder().set(TTable.Border.BORDER_NON);
     }
 
     public TKv(TTable.ColumnDefine keyColumnDefine, TTable.ColumnDefine valueColumnDefine) {
-        this.tTable = new TTable(new TTable.ColumnDefine[]{
-                keyColumnDefine,
-                new TTable.ColumnDefine(TTable.Align.RIGHT),
-                valueColumnDefine
-        })
+        this.tTable = new TTable(new TTable.ColumnDefine[] {
+                    keyColumnDefine, new TTable.ColumnDefine(TTable.Align.RIGHT), valueColumnDefine
+                })
                 .padding(0);
         this.tTable.getBorder().set(TTable.Border.BORDER_NON);
     }
@@ -59,9 +57,7 @@ public class TKv implements TComponent {
 
     private String filterEmptyLine(String content) {
         final StringBuilder sb = new StringBuilder();
-        Scanner scanner = null;
-        try {
-            scanner = new Scanner(content);
+        try (Scanner scanner = new Scanner(content)) {
             while (scanner.hasNextLine()) {
                 String line = scanner.nextLine();
                 if (line != null) {
@@ -71,11 +67,7 @@ public class TKv implements TComponent {
                         line = " ";
                     }
                 }
-                sb.append(line).append('\n');
-            }
-        } finally {
-            if (null != scanner) {
-                scanner.close();
+                sb.append(line).append(System.lineSeparator());
             }
         }
 

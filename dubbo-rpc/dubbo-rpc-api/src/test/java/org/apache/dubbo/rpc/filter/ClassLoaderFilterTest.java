@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.dubbo.rpc.filter;
 
 import org.apache.dubbo.common.URL;
@@ -22,25 +21,26 @@ import org.apache.dubbo.rpc.Invocation;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Result;
 import org.apache.dubbo.rpc.RpcException;
+import org.apache.dubbo.rpc.model.ServiceModel;
 import org.apache.dubbo.rpc.support.DemoService;
 import org.apache.dubbo.rpc.support.MyInvoker;
 
-import org.junit.Assert;
-import org.junit.Test;
-import org.mockito.Mockito;
-
 import java.net.URLClassLoader;
 
-public class ClassLoaderFilterTest {
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+class ClassLoaderFilterTest {
 
     private ClassLoaderFilter classLoaderFilter = new ClassLoaderFilter();
 
     @Test
-    public void testInvoke() throws Exception {
+    void testInvoke() throws Exception {
         URL url = URL.valueOf("test://test:11/test?accesslog=true&group=dubbo&version=1.1");
 
         String path = DemoService.class.getResource("/").getPath();
-        final URLClassLoader cl = new URLClassLoader(new java.net.URL[]{new java.net.URL("file:" + path)}) {
+        final URLClassLoader cl = new URLClassLoader(new java.net.URL[] {new java.net.URL("file:" + path)}) {
             @Override
             public Class<?> loadClass(String name) throws ClassNotFoundException {
                 try {
@@ -59,11 +59,14 @@ public class ClassLoaderFilterTest {
 
             @Override
             public Result invoke(Invocation invocation) throws RpcException {
-                Assert.assertEquals(cl, Thread.currentThread().getContextClassLoader());
+                Assertions.assertEquals(cl, Thread.currentThread().getContextClassLoader());
                 return null;
             }
         };
         Invocation invocation = Mockito.mock(Invocation.class);
+        ServiceModel serviceModel = Mockito.mock(ServiceModel.class);
+        Mockito.when(serviceModel.getClassLoader()).thenReturn(cl);
+        Mockito.when(invocation.getServiceModel()).thenReturn(serviceModel);
 
         classLoaderFilter.invoke(invoker, invocation);
     }

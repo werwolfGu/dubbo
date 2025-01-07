@@ -20,78 +20,73 @@ import org.apache.dubbo.config.ApplicationConfig;
 import org.apache.dubbo.config.ModuleConfig;
 import org.apache.dubbo.config.ProtocolConfig;
 import org.apache.dubbo.config.RegistryConfig;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import org.springframework.core.io.support.ResourcePropertySource;
+import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 
 import java.io.IOException;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.core.io.support.ResourcePropertySource;
 
 /**
  * {@link DubboConfigConfiguration} Test
  *
  * @since 2.5.8
  */
-public class DubboConfigConfigurationTest {
+class DubboConfigConfigurationTest {
 
     private AnnotationConfigApplicationContext context;
 
-    @Before
+    @BeforeEach
     public void before() throws IOException {
+        DubboBootstrap.reset();
 
         context = new AnnotationConfigApplicationContext();
         ResourcePropertySource propertySource = new ResourcePropertySource("META-INF/config.properties");
         context.getEnvironment().getPropertySources().addFirst(propertySource);
-
     }
 
-    @After
+    @AfterEach
     public void after() {
         context.close();
     }
 
     @Test
-    public void testSingle() throws IOException {
+    void testSingle() throws IOException {
 
         context.register(DubboConfigConfiguration.Single.class);
         context.refresh();
 
         // application
         ApplicationConfig applicationConfig = context.getBean("applicationBean", ApplicationConfig.class);
-        Assert.assertEquals("dubbo-demo-application", applicationConfig.getName());
+        Assertions.assertEquals("dubbo-demo-application", applicationConfig.getName());
 
         // module
         ModuleConfig moduleConfig = context.getBean("moduleBean", ModuleConfig.class);
-        Assert.assertEquals("dubbo-demo-module", moduleConfig.getName());
+        Assertions.assertEquals("dubbo-demo-module", moduleConfig.getName());
 
         // registry
         RegistryConfig registryConfig = context.getBean(RegistryConfig.class);
-        Assert.assertEquals("zookeeper://192.168.99.100:32770", registryConfig.getAddress());
+        Assertions.assertEquals("zookeeper://192.168.99.100:32770", registryConfig.getAddress());
 
         // protocol
         ProtocolConfig protocolConfig = context.getBean(ProtocolConfig.class);
-        Assert.assertEquals("dubbo", protocolConfig.getName());
-        Assert.assertEquals(Integer.valueOf(20880), protocolConfig.getPort());
+        Assertions.assertEquals("dubbo", protocolConfig.getName());
+        Assertions.assertEquals(Integer.valueOf(20880), protocolConfig.getPort());
     }
 
     @Test
-    public void testMultiple() {
-
+    void testMultiple() {
         context.register(DubboConfigConfiguration.Multiple.class);
         context.refresh();
 
-        // application
-        ApplicationConfig applicationConfig = context.getBean("applicationBean", ApplicationConfig.class);
-        Assert.assertEquals("dubbo-demo-application", applicationConfig.getName());
+        RegistryConfig registry1 = context.getBean("registry1", RegistryConfig.class);
+        Assertions.assertEquals(2181, registry1.getPort());
 
-        ApplicationConfig applicationBean2 = context.getBean("applicationBean2", ApplicationConfig.class);
-        Assert.assertEquals("dubbo-demo-application2", applicationBean2.getName());
-
-        ApplicationConfig applicationBean3 = context.getBean("applicationBean3", ApplicationConfig.class);
-        Assert.assertEquals("dubbo-demo-application3", applicationBean3.getName());
-
+        RegistryConfig registry2 = context.getBean("registry2", RegistryConfig.class);
+        Assertions.assertEquals(2182, registry2.getPort());
     }
-
 }

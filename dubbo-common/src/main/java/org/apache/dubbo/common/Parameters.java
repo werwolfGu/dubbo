@@ -17,8 +17,9 @@
 package org.apache.dubbo.common;
 
 import org.apache.dubbo.common.extension.ExtensionLoader;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.common.utils.CollectionUtils;
 import org.apache.dubbo.common.utils.StringUtils;
 
 import java.io.UnsupportedEncodingException;
@@ -27,6 +28,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.apache.dubbo.common.constants.CommonConstants.DEFAULT_KEY_PREFIX;
+import static org.apache.dubbo.common.constants.CommonConstants.HIDE_KEY_PREFIX;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.COMMON_UNEXPECTED_EXCEPTION;
+
 /**
  * Parameters for backward compatibility for version prior to 2.0.5
  *
@@ -34,7 +39,7 @@ import java.util.Map;
  */
 @Deprecated
 public class Parameters {
-    protected static final Logger logger = LoggerFactory.getLogger(Parameters.class);
+    protected static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(Parameters.class);
     private final Map<String, String> parameters;
 
     public Parameters(String... pairs) {
@@ -42,20 +47,12 @@ public class Parameters {
     }
 
     public Parameters(Map<String, String> parameters) {
-        this.parameters = Collections.unmodifiableMap(parameters != null ? new HashMap<String, String>(parameters) : new HashMap<String, String>(0));
+        this.parameters =
+                Collections.unmodifiableMap(parameters != null ? new HashMap<>(parameters) : new HashMap<>(0));
     }
 
     private static Map<String, String> toMap(String... pairs) {
-        Map<String, String> parameters = new HashMap<String, String>();
-        if (pairs.length > 0) {
-            if (pairs.length % 2 != 0) {
-                throw new IllegalArgumentException("pairs must be even.");
-            }
-            for (int i = 0; i < pairs.length; i = i + 2) {
-                parameters.put(pairs[i], pairs[i + 1]);
-            }
-        }
-        return parameters;
+        return CollectionUtils.toStringMap(pairs);
     }
 
     public static Parameters parseParameters(String query) {
@@ -66,21 +63,37 @@ public class Parameters {
         return parameters;
     }
 
+    /**
+     * @deprecated will be removed in 3.3.0
+     */
+    @Deprecated
     public <T> T getExtension(Class<T> type, String key) {
         String name = getParameter(key);
         return ExtensionLoader.getExtensionLoader(type).getExtension(name);
     }
 
+    /**
+     * @deprecated will be removed in 3.3.0
+     */
+    @Deprecated
     public <T> T getExtension(Class<T> type, String key, String defaultValue) {
         String name = getParameter(key, defaultValue);
         return ExtensionLoader.getExtensionLoader(type).getExtension(name);
     }
 
+    /**
+     * @deprecated will be removed in 3.3.0
+     */
+    @Deprecated
     public <T> T getMethodExtension(Class<T> type, String method, String key) {
         String name = getMethodParameter(method, key);
         return ExtensionLoader.getExtensionLoader(type).getExtension(name);
     }
 
+    /**
+     * @deprecated will be removed in 3.3.0
+     */
+    @Deprecated
     public <T> T getMethodExtension(Class<T> type, String method, String key, String defaultValue) {
         String name = getMethodParameter(method, key, defaultValue);
         return ExtensionLoader.getExtensionLoader(type).getExtension(name);
@@ -96,7 +109,7 @@ public class Parameters {
             try {
                 value = URLDecoder.decode(value, "UTF-8");
             } catch (UnsupportedEncodingException e) {
-                logger.error(e.getMessage(), e);
+                logger.error(COMMON_UNEXPECTED_EXCEPTION, "", "", e.getMessage(), e);
             }
         }
         return value;
@@ -104,21 +117,21 @@ public class Parameters {
 
     public String getParameter(String key) {
         String value = parameters.get(key);
-        if (value == null || value.length() == 0) {
-            value = parameters.get(Constants.HIDE_KEY_PREFIX + key);
+        if (StringUtils.isEmpty(value)) {
+            value = parameters.get(HIDE_KEY_PREFIX + key);
         }
-        if (value == null || value.length() == 0) {
-            value = parameters.get(Constants.DEFAULT_KEY_PREFIX + key);
+        if (StringUtils.isEmpty(value)) {
+            value = parameters.get(DEFAULT_KEY_PREFIX + key);
         }
-        if (value == null || value.length() == 0) {
-            value = parameters.get(Constants.HIDE_KEY_PREFIX + Constants.DEFAULT_KEY_PREFIX + key);
+        if (StringUtils.isEmpty(value)) {
+            value = parameters.get(HIDE_KEY_PREFIX + DEFAULT_KEY_PREFIX + key);
         }
         return value;
     }
 
     public String getParameter(String key, String defaultValue) {
         String value = getParameter(key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return defaultValue;
         }
         return value;
@@ -126,7 +139,7 @@ public class Parameters {
 
     public int getIntParameter(String key) {
         String value = getParameter(key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return 0;
         }
         return Integer.parseInt(value);
@@ -134,7 +147,7 @@ public class Parameters {
 
     public int getIntParameter(String key, int defaultValue) {
         String value = getParameter(key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return defaultValue;
         }
         return Integer.parseInt(value);
@@ -145,7 +158,7 @@ public class Parameters {
             throw new IllegalArgumentException("defaultValue <= 0");
         }
         String value = getParameter(key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return defaultValue;
         }
         int i = Integer.parseInt(value);
@@ -157,7 +170,7 @@ public class Parameters {
 
     public boolean getBooleanParameter(String key) {
         String value = getParameter(key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return false;
         }
         return Boolean.parseBoolean(value);
@@ -165,23 +178,23 @@ public class Parameters {
 
     public boolean getBooleanParameter(String key, boolean defaultValue) {
         String value = getParameter(key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return defaultValue;
         }
         return Boolean.parseBoolean(value);
     }
 
-    public boolean hasParamter(String key) {
+    public boolean hasParameter(String key) {
         String value = getParameter(key);
         return value != null && value.length() > 0;
     }
 
     public String getMethodParameter(String method, String key) {
         String value = parameters.get(method + "." + key);
-        if (value == null || value.length() == 0) {
-            value = parameters.get(Constants.HIDE_KEY_PREFIX + method + "." + key);
+        if (StringUtils.isEmpty(value)) {
+            value = parameters.get(HIDE_KEY_PREFIX + method + "." + key);
         }
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return getParameter(key);
         }
         return value;
@@ -189,7 +202,7 @@ public class Parameters {
 
     public String getMethodParameter(String method, String key, String defaultValue) {
         String value = getMethodParameter(method, key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return defaultValue;
         }
         return value;
@@ -197,7 +210,7 @@ public class Parameters {
 
     public int getMethodIntParameter(String method, String key) {
         String value = getMethodParameter(method, key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return 0;
         }
         return Integer.parseInt(value);
@@ -205,7 +218,7 @@ public class Parameters {
 
     public int getMethodIntParameter(String method, String key, int defaultValue) {
         String value = getMethodParameter(method, key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return defaultValue;
         }
         return Integer.parseInt(value);
@@ -216,7 +229,7 @@ public class Parameters {
             throw new IllegalArgumentException("defaultValue <= 0");
         }
         String value = getMethodParameter(method, key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return defaultValue;
         }
         int i = Integer.parseInt(value);
@@ -228,7 +241,7 @@ public class Parameters {
 
     public boolean getMethodBooleanParameter(String method, String key) {
         String value = getMethodParameter(method, key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return false;
         }
         return Boolean.parseBoolean(value);
@@ -236,19 +249,22 @@ public class Parameters {
 
     public boolean getMethodBooleanParameter(String method, String key, boolean defaultValue) {
         String value = getMethodParameter(method, key);
-        if (value == null || value.length() == 0) {
+        if (StringUtils.isEmpty(value)) {
             return defaultValue;
         }
         return Boolean.parseBoolean(value);
     }
 
-    public boolean hasMethodParamter(String method, String key) {
+    public boolean hasMethodParameter(String method, String key) {
         String value = getMethodParameter(method, key);
         return value != null && value.length() > 0;
     }
 
     @Override
     public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
         return parameters.equals(o);
     }
 
@@ -261,5 +277,4 @@ public class Parameters {
     public String toString() {
         return StringUtils.toQueryString(getParameters());
     }
-
 }

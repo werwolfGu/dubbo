@@ -16,105 +16,218 @@
  */
 package org.apache.dubbo.rpc.cluster.support;
 
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.URL;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
-import org.apache.dubbo.common.threadlocal.NamedInternalThreadFactory;
+import org.apache.dubbo.common.timer.HashedWheelTimer;
+import org.apache.dubbo.common.timer.Timeout;
+import org.apache.dubbo.common.timer.Timer;
+import org.apache.dubbo.common.timer.TimerTask;
+import org.apache.dubbo.common.utils.NamedThreadFactory;
+import org.apache.dubbo.rpc.AsyncRpcResult;
 import org.apache.dubbo.rpc.Invocation;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Result;
-import org.apache.dubbo.rpc.RpcException;
-import org.apache.dubbo.rpc.RpcResult;
 import org.apache.dubbo.rpc.RpcContext;
+import org.apache.dubbo.rpc.RpcException;
 import org.apache.dubbo.rpc.cluster.Directory;
 import org.apache.dubbo.rpc.cluster.LoadBalance;
+import org.apache.dubbo.rpc.support.RpcUtils;
 
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+
+import static org.apache.dubbo.common.constants.CommonConstants.DEFAULT_FAILBACK_TIMES;
+import static org.apache.dubbo.common.constants.CommonConstants.RETRIES_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.CLUSTER_FAILED_INVOKE_SERVICE;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.CLUSTER_TIMER_RETRY_FAILED;
+import static org.apache.dubbo.rpc.cluster.Constants.DEFAULT_FAILBACK_TASKS;
+import static org.apache.dubbo.rpc.cluster.Constants.FAIL_BACK_TASKS_KEY;
 
 /**
  * When fails, record failure requests and schedule for retry on a regular interval.
  * Especially useful for services of notification.
  *
  * <a href="http://en.wikipedia.org/wiki/Failback">Failback</a>
- *
  */
 public class FailbackClusterInvoker<T> extends AbstractClusterInvoker<T> {
 
-    private static final Logger logger = LoggerFactory.getLogger(FailbackClusterInvoker.class);
+    private static final ErrorTypeAwareLogger logger =
+            LoggerFactory.getErrorTypeAwareLogger(FailbackClusterInvoker.class);
 
-    private static final long RETRY_FAILED_PERIOD = 5 * 1000;
+    private static final long RETRY_FAILED_PERIOD = 5;
 
     /**
-     * Use {@link NamedInternalThreadFactory} to produce {@link org.apache.dubbo.common.threadlocal.InternalThread}
-     * which with the use of {@link org.apache.dubbo.common.threadlocal.InternalThreadLocal} in {@link RpcContext}.
+     * Number of retries obtained from the configuration, don't contain the first invoke.
      */
-    private final ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(2,
-            new NamedInternalThreadFactory("failback-cluster-timer", true));
+    private final int retries;
 
-    private final ConcurrentMap<Invocation, AbstractClusterInvoker<?>> failed = new ConcurrentHashMap<>();
-    private volatile ScheduledFuture<?> retryFuture;
+    private final int failbackTasks;
+
+    private volatile Timer failTimer;
 
     public FailbackClusterInvoker(Directory<T> directory) {
         super(directory);
+
+        int retriesConfig = getUrl().getParameter(RETRIES_KEY, DEFAULT_FAILBACK_TIMES);
+        if (retriesConfig < 0) {
+            retriesConfig = DEFAULT_FAILBACK_TIMES;
+        }
+        int failbackTasksConfig = getUrl().getParameter(FAIL_BACK_TASKS_KEY, DEFAULT_FAILBACK_TASKS);
+        if (failbackTasksConfig <= 0) {
+            failbackTasksConfig = DEFAULT_FAILBACK_TASKS;
+        }
+        retries = retriesConfig;
+        failbackTasks = failbackTasksConfig;
     }
 
-    private void addFailed(Invocation invocation, AbstractClusterInvoker<?> router) {
-        if (retryFuture == null) {
+    private void addFailed(
+            LoadBalance loadbalance,
+            Invocation invocation,
+            List<Invoker<T>> invokers,
+            Invoker<T> lastInvoker,
+            URL consumerUrl) {
+        if (failTimer == null) {
             synchronized (this) {
-                if (retryFuture == null) {
-                    retryFuture = scheduledExecutorService.scheduleWithFixedDelay(new Runnable() {
-
-                        @Override
-                        public void run() {
-                            // collect retry statistics
-                            try {
-                                retryFailed();
-                            } catch (Throwable t) { // Defensive fault tolerance
-                                logger.error("Unexpected error occur at collect statistic", t);
-                            }
-                        }
-                    }, RETRY_FAILED_PERIOD, RETRY_FAILED_PERIOD, TimeUnit.MILLISECONDS);
+                if (failTimer == null) {
+                    failTimer = new HashedWheelTimer(
+                            new NamedThreadFactory("failback-cluster-timer", true),
+                            1,
+                            TimeUnit.SECONDS,
+                            32,
+                            failbackTasks);
                 }
             }
         }
-        failed.put(invocation, router);
-    }
-
-    void retryFailed() {
-        if (failed.size() == 0) {
-            return;
-        }
-        for (Map.Entry<Invocation, AbstractClusterInvoker<?>> entry : new HashMap<>(failed).entrySet()) {
-            Invocation invocation = entry.getKey();
-            Invoker<?> invoker = entry.getValue();
-            try {
-                invoker.invoke(invocation);
-                failed.remove(invocation);
-            } catch (Throwable e) {
-                logger.error("Failed retry to invoke method " + invocation.getMethodName() + ", waiting again.", e);
-            }
+        RetryTimerTask retryTimerTask = new RetryTimerTask(
+                loadbalance, invocation, invokers, lastInvoker, retries, RETRY_FAILED_PERIOD, consumerUrl);
+        try {
+            failTimer.newTimeout(retryTimerTask, RETRY_FAILED_PERIOD, TimeUnit.SECONDS);
+        } catch (Throwable e) {
+            logger.error(
+                    CLUSTER_TIMER_RETRY_FAILED,
+                    "add newTimeout exception",
+                    "",
+                    "Failback background works error, invocation->" + invocation + ", exception: " + e.getMessage(),
+                    e);
         }
     }
 
     @Override
-    protected Result doInvoke(Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance) throws RpcException {
+    protected Result doInvoke(Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance)
+            throws RpcException {
+        Invoker<T> invoker = null;
+        URL consumerUrl = RpcContext.getServiceContext().getConsumerUrl();
         try {
-            checkInvokers(invokers, invocation);
-            Invoker<T> invoker = select(loadbalance, invocation, invokers, null);
-            return invoker.invoke(invocation);
+            invoker = select(loadbalance, invocation, invokers, null);
+            // Asynchronous call method must be used here, because failback will retry in the background.
+            // Then the serviceContext will be cleared after the call is completed.
+            return invokeWithContextAsync(invoker, invocation, consumerUrl);
         } catch (Throwable e) {
-            logger.error("Failback to invoke method " + invocation.getMethodName() + ", wait for retry in background. Ignored exception: "
-                    + e.getMessage() + ", ", e);
-            addFailed(invocation, this);
-            return new RpcResult(); // ignore
+            logger.error(
+                    CLUSTER_FAILED_INVOKE_SERVICE,
+                    "Failback to invoke method and start to retries",
+                    "",
+                    "Failback to invoke method " + RpcUtils.getMethodName(invocation)
+                            + ", wait for retry in background. Ignored exception: "
+                            + e.getMessage() + ", ",
+                    e);
+            if (retries > 0) {
+                addFailed(loadbalance, invocation, invokers, invoker, consumerUrl);
+            }
+            return AsyncRpcResult.newDefaultAsyncResult(null, null, invocation); // ignore
         }
     }
 
+    @Override
+    public void destroy() {
+        super.destroy();
+        if (failTimer != null) {
+            failTimer.stop();
+        }
+    }
+
+    /**
+     * RetryTimerTask
+     */
+    private class RetryTimerTask implements TimerTask {
+        private final Invocation invocation;
+        private final LoadBalance loadbalance;
+        private final List<Invoker<T>> invokers;
+        private final long tick;
+        private Invoker<T> lastInvoker;
+        private URL consumerUrl;
+
+        /**
+         * Number of retries obtained from the configuration, don't contain the first invoke.
+         */
+        private final int retries;
+
+        /**
+         * Number of retried.
+         */
+        private int retriedTimes = 0;
+
+        RetryTimerTask(
+                LoadBalance loadbalance,
+                Invocation invocation,
+                List<Invoker<T>> invokers,
+                Invoker<T> lastInvoker,
+                int retries,
+                long tick,
+                URL consumerUrl) {
+            this.loadbalance = loadbalance;
+            this.invocation = invocation;
+            this.invokers = invokers;
+            this.retries = retries;
+            this.tick = tick;
+            this.lastInvoker = lastInvoker;
+            this.consumerUrl = consumerUrl;
+        }
+
+        @Override
+        public void run(Timeout timeout) {
+            try {
+                logger.info("Attempt to retry to invoke method " + RpcUtils.getMethodName(invocation)
+                        + ". The total will retry " + retries + " times, the current is the " + retriedTimes
+                        + " retry");
+                Invoker<T> retryInvoker =
+                        select(loadbalance, invocation, invokers, Collections.singletonList(lastInvoker));
+                lastInvoker = retryInvoker;
+                invokeWithContextAsync(retryInvoker, invocation, consumerUrl);
+            } catch (Throwable e) {
+                logger.error(
+                        CLUSTER_FAILED_INVOKE_SERVICE,
+                        "Failed retry to invoke method",
+                        "",
+                        "Failed retry to invoke method " + RpcUtils.getMethodName(invocation) + ", waiting again.",
+                        e);
+                if ((++retriedTimes) >= retries) {
+                    logger.error(
+                            CLUSTER_FAILED_INVOKE_SERVICE,
+                            "Failed retry to invoke method and retry times exceed threshold",
+                            "",
+                            "Failed retry times exceed threshold (" + retries + "), We have to abandon, invocation->"
+                                    + invocation,
+                            e);
+                } else {
+                    rePut(timeout);
+                }
+            }
+        }
+
+        private void rePut(Timeout timeout) {
+            if (timeout == null) {
+                return;
+            }
+
+            Timer timer = timeout.timer();
+            if (timer.isStop() || timeout.isCancelled()) {
+                return;
+            }
+
+            timer.newTimeout(timeout.task(), tick, TimeUnit.SECONDS);
+        }
+    }
 }

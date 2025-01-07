@@ -14,27 +14,32 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.dubbo.rpc.cluster.merger;
 
+import org.apache.dubbo.common.utils.ArrayUtils;
 import org.apache.dubbo.rpc.cluster.Merger;
 
 public class ByteArrayMerger implements Merger<byte[]> {
 
     @Override
     public byte[] merge(byte[]... items) {
+        if (ArrayUtils.isEmpty(items)) {
+            return new byte[0];
+        }
         int total = 0;
         for (byte[] array : items) {
-            total += array.length;
+            if (array != null) {
+                total += array.length;
+            }
         }
         byte[] result = new byte[total];
         int index = 0;
         for (byte[] array : items) {
-            for (byte item : array) {
-                result[index++] = item;
+            if (array != null) {
+                System.arraycopy(array, 0, result, index, array.length);
+                index += array.length;
             }
         }
         return result;
     }
-
 }

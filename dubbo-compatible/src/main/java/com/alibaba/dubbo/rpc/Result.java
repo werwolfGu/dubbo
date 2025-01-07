@@ -14,13 +14,55 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.alibaba.dubbo.rpc;
 
+import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 @Deprecated
 public interface Result extends org.apache.dubbo.rpc.Result {
+
+    @Override
+    default void setValue(Object value) {}
+
+    @Override
+    default void setException(Throwable t) {}
+
+    @Override
+    default Map<String, Object> getObjectAttachments() {
+        return Collections.emptyMap();
+    }
+
+    @Override
+    default void addObjectAttachments(Map<String, Object> map) {}
+
+    @Override
+    default void setObjectAttachments(Map<String, Object> map) {}
+
+    @Override
+    default Object getObjectAttachment(String key) {
+        return null;
+    }
+
+    @Override
+    default Object getObjectAttachment(String key, Object defaultValue) {
+        return null;
+    }
+
+    /**
+     * @see com.alibaba.dubbo.rpc.Result#getValue()
+     * @deprecated Replace to getValue()
+     */
+    @Deprecated
+    default Object getResult() {
+        return getValue();
+    }
 
     class CompatibleResult implements Result {
         private org.apache.dubbo.rpc.Result delegate;
@@ -34,13 +76,29 @@ public interface Result extends org.apache.dubbo.rpc.Result {
         }
 
         @Override
+        public org.apache.dubbo.rpc.Result whenCompleteWithContext(
+                BiConsumer<org.apache.dubbo.rpc.Result, Throwable> fn) {
+            return delegate.whenCompleteWithContext(fn);
+        }
+
+        @Override
         public Object getValue() {
             return delegate.getValue();
         }
 
         @Override
+        public void setValue(Object value) {
+            delegate.setValue(value);
+        }
+
+        @Override
         public Throwable getException() {
             return delegate.getException();
+        }
+
+        @Override
+        public void setException(Throwable t) {
+            delegate.setException(t);
         }
 
         @Override
@@ -51,11 +109,6 @@ public interface Result extends org.apache.dubbo.rpc.Result {
         @Override
         public Object recreate() throws Throwable {
             return delegate.recreate();
-        }
-
-        @Override
-        public Object getResult() {
-            return delegate.getResult();
         }
 
         @Override
@@ -86,6 +139,32 @@ public interface Result extends org.apache.dubbo.rpc.Result {
         @Override
         public void setAttachment(String key, String value) {
             delegate.setAttachment(key, value);
+        }
+
+        @Override
+        public void setAttachment(String key, Object value) {
+            delegate.setAttachment(key, value);
+        }
+
+        @Override
+        public void setObjectAttachment(String key, Object value) {
+            delegate.setObjectAttachment(key, value);
+        }
+
+        @Override
+        public <U> CompletableFuture<U> thenApply(Function<org.apache.dubbo.rpc.Result, ? extends U> fn) {
+            return delegate.thenApply(fn);
+        }
+
+        @Override
+        public org.apache.dubbo.rpc.Result get() throws InterruptedException, ExecutionException {
+            return delegate.get();
+        }
+
+        @Override
+        public org.apache.dubbo.rpc.Result get(long timeout, TimeUnit unit)
+                throws InterruptedException, ExecutionException, TimeoutException {
+            return delegate.get(timeout, unit);
         }
     }
 }

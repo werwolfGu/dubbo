@@ -16,16 +16,17 @@
  */
 package org.apache.dubbo.common.io;
 
-import org.junit.Test;
-
 import java.io.IOException;
 
-import static org.hamcrest.CoreMatchers.is;
-import static org.junit.Assert.assertThat;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-public class UnsafeStringWriterTest {
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+
+class UnsafeStringWriterTest {
     @Test
-    public void testWrite() {
+    void testWrite() {
         UnsafeStringWriter writer = new UnsafeStringWriter();
         writer.write("a");
         writer.write("abc", 1, 1);
@@ -36,15 +37,15 @@ public class UnsafeStringWriterTest {
         assertThat(writer.toString(), is("abc"));
     }
 
-    @Test(expected = IllegalArgumentException.class)
-    public void testNegativeSize() {
-        new UnsafeStringWriter(-1);
+    @Test
+    void testNegativeSize() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new UnsafeStringWriter(-1));
     }
 
     @Test
-    public void testAppend() {
+    void testAppend() {
         UnsafeStringWriter writer = new UnsafeStringWriter();
-        writer.append("a");
+        writer.append('a');
         writer.append("abc", 1, 2);
         writer.append('c');
         writer.flush();
@@ -54,7 +55,7 @@ public class UnsafeStringWriterTest {
     }
 
     @Test
-    public void testAppendNull() {
+    void testAppendNull() {
         UnsafeStringWriter writer = new UnsafeStringWriter();
         writer.append(null);
         writer.append(null, 0, 4);
@@ -65,7 +66,7 @@ public class UnsafeStringWriterTest {
     }
 
     @Test
-    public void testWriteNull() throws IOException {
+    void testWriteNull() throws IOException {
         UnsafeStringWriter writer = new UnsafeStringWriter(3);
         char[] chars = new char[2];
         chars[0] = 'a';
@@ -78,17 +79,21 @@ public class UnsafeStringWriterTest {
         assertThat(writer.toString(), is("aba"));
     }
 
-    @Test(expected = IndexOutOfBoundsException.class)
-    public void testWriteCharWithWrongLength() throws IOException {
-        UnsafeStringWriter writer = new UnsafeStringWriter();
-        char[] chars = new char[0];
-        writer.write(chars, 0, 1);
+    @Test
+    void testWriteCharWithWrongLength() throws IOException {
+        Assertions.assertThrows(IndexOutOfBoundsException.class, () -> {
+            UnsafeStringWriter writer = new UnsafeStringWriter();
+            char[] chars = new char[0];
+            writer.write(chars, 0, 1);
+        });
     }
 
-    @Test(expected = IndexOutOfBoundsException.class)
-    public void testWriteCharWithWrongCombineLength() throws IOException {
-        UnsafeStringWriter writer = new UnsafeStringWriter();
-        char[] chars = new char[1];
-        writer.write(chars, 1, 1);
+    @Test
+    void testWriteCharWithWrongCombineLength() throws IOException {
+        Assertions.assertThrows(IndexOutOfBoundsException.class, () -> {
+            UnsafeStringWriter writer = new UnsafeStringWriter();
+            char[] chars = new char[1];
+            writer.write(chars, 1, 1);
+        });
     }
 }

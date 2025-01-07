@@ -17,28 +17,31 @@
 package org.apache.dubbo.remoting.exchange.support.header;
 
 import org.apache.dubbo.common.URL;
-import org.apache.dubbo.remoting.exchange.support.DefaultFuture;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 import org.apache.dubbo.remoting.Channel;
 import org.apache.dubbo.remoting.RemotingException;
 import org.apache.dubbo.remoting.exchange.Request;
+import org.apache.dubbo.remoting.exchange.support.DefaultFuture;
+
+import java.util.List;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
-import java.util.List;
-import static org.mockito.Mockito.verify;
+
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-public class HeaderExchangeChannelTest {
+class HeaderExchangeChannelTest {
 
     private HeaderExchangeChannel header;
     private MockChannel channel;
     private URL url = URL.valueOf("dubbo://localhost:20880");
     private static final String CHANNEL_KEY = HeaderExchangeChannel.class.getName() + ".CHANNEL";
 
-    @Before
+    @BeforeEach
     public void setup() {
         channel = new MockChannel() {
             @Override
@@ -51,234 +54,231 @@ public class HeaderExchangeChannelTest {
     }
 
     @Test
-    public void getOrAddChannelTest00() {
+    void getOrAddChannelTest00() {
         channel.setAttribute("CHANNEL_KEY", "attribute");
         HeaderExchangeChannel ret = HeaderExchangeChannel.getOrAddChannel(channel);
-        Assert.assertNotNull(ret);
+        Assertions.assertNotNull(ret);
     }
 
     @Test
-    public void getOrAddChannelTest01() {
-        channel = new MockChannel(){
+    void getOrAddChannelTest01() {
+        channel = new MockChannel() {
             @Override
-            public URL getUrl(){
+            public URL getUrl() {
                 return url;
             }
 
             @Override
-            public boolean isConnected(){
+            public boolean isConnected() {
                 return true;
             }
-
         };
-        Assert.assertNull(channel.getAttribute(CHANNEL_KEY));
+        Assertions.assertNull(channel.getAttribute(CHANNEL_KEY));
         HeaderExchangeChannel ret = HeaderExchangeChannel.getOrAddChannel(channel);
-        Assert.assertNotNull(ret);
-        Assert.assertNotNull(channel.getAttribute(CHANNEL_KEY));
-        Assert.assertEquals(channel.getAttribute(CHANNEL_KEY).getClass(), HeaderExchangeChannel.class);
+        Assertions.assertNotNull(ret);
+        Assertions.assertNotNull(channel.getAttribute(CHANNEL_KEY));
+        Assertions.assertEquals(channel.getAttribute(CHANNEL_KEY).getClass(), HeaderExchangeChannel.class);
     }
 
     @Test
-    public void getOrAddChannelTest02() {
+    void getOrAddChannelTest02() {
         channel = null;
         HeaderExchangeChannel ret = HeaderExchangeChannel.getOrAddChannel(channel);
-        Assert.assertNull(ret);
+        Assertions.assertNull(ret);
     }
 
-
     @Test
-    public void removeChannelIfDisconnectedTest() {
-        Assert.assertNull(channel.getAttribute(CHANNEL_KEY));
+    void removeChannelIfDisconnectedTest() {
+        Assertions.assertNull(channel.getAttribute(CHANNEL_KEY));
         channel.setAttribute(CHANNEL_KEY, header);
         channel.close();
         HeaderExchangeChannel.removeChannelIfDisconnected(channel);
-        Assert.assertNull(channel.getAttribute(CHANNEL_KEY));
+        Assertions.assertNull(channel.getAttribute(CHANNEL_KEY));
     }
 
     @Test
-    public void sendTest00() {
+    void sendTest00() {
         boolean sent = true;
         String message = "this is a test message";
         try {
             header.close(1);
             header.send(message, sent);
         } catch (Exception e) {
-            Assert.assertTrue(e instanceof RemotingException);
+            Assertions.assertTrue(e instanceof RemotingException);
         }
     }
 
     @Test
-    public void sendTest01() throws RemotingException {
+    void sendTest01() throws RemotingException {
         boolean sent = true;
         String message = "this is a test message";
         header.send(message, sent);
         List<Object> objects = channel.getSentObjects();
-        Assert.assertEquals(objects.get(0), "this is a test message");
+        Assertions.assertEquals(objects.get(0), "this is a test message");
     }
 
     @Test
-    public void sendTest02() throws RemotingException {
+    void sendTest02() throws RemotingException {
         boolean sent = true;
         int message = 1;
         header.send(message, sent);
         List<Object> objects = channel.getSentObjects();
-        Assert.assertEquals(objects.get(0).getClass(), Request.class);
+        Assertions.assertEquals(objects.get(0).getClass(), Request.class);
         Request request = (Request) objects.get(0);
-        Assert.assertEquals(request.getVersion(), "2.0.2");
+        Assertions.assertEquals(request.getVersion(), "2.0.2");
     }
 
     @Test
-    public void sendTest04() throws RemotingException {
+    void sendTest04() throws RemotingException {
         String message = "this is a test message";
         header.send(message);
         List<Object> objects = channel.getSentObjects();
-        Assert.assertEquals(objects.get(0), "this is a test message");
-    }
-
-    @Test(expected = RemotingException.class)
-    public void requestTest01() throws RemotingException {
-        header.close(1000);
-        Object requestob = new Object();
-        header.request(requestob);
+        Assertions.assertEquals(objects.get(0), "this is a test message");
     }
 
     @Test
-    public void requestTest02() throws RemotingException {
+    void requestTest01() throws RemotingException {
+        Assertions.assertThrows(RemotingException.class, () -> {
+            header.close(1000);
+            Object requestObject = new Object();
+            header.request(requestObject);
+        });
+    }
+
+    @Test
+    void requestTest02() throws RemotingException {
         Channel channel = Mockito.mock(MockChannel.class);
         header = new HeaderExchangeChannel(channel);
         when(channel.getUrl()).thenReturn(url);
-        Object requestob = new Object();
-        header.request(requestob);
+        Object requestObject = new Object();
+        header.request(requestObject);
         ArgumentCaptor<Request> argumentCaptor = ArgumentCaptor.forClass(Request.class);
         verify(channel, times(1)).send(argumentCaptor.capture());
-        Assert.assertEquals(argumentCaptor.getValue().getData(), requestob);
-    }
-
-    @Test(expected = RemotingException.class)
-    public void requestTest03() throws RemotingException{
-        channel = new MockChannel() {
-            @Override
-            public void send(Object req) throws RemotingException {
-                throw new RemotingException(channel.getLocalAddress(), channel.getRemoteAddress(), "throw error");
-            }
-        };
-        header = new HeaderExchangeChannel(channel);
-        Object requestob = new Object();
-        header.request(requestob, 1000);
+        Assertions.assertEquals(argumentCaptor.getValue().getData(), requestObject);
     }
 
     @Test
-    public void isClosedTest(){
-        Assert.assertFalse(header.isClosed());
+    void requestTest03() throws RemotingException {
+        Assertions.assertThrows(RemotingException.class, () -> {
+            channel = new MockChannel() {
+                @Override
+                public void send(Object req) throws RemotingException {
+                    throw new RemotingException(channel.getLocalAddress(), channel.getRemoteAddress(), "throw error");
+                }
+            };
+            header = new HeaderExchangeChannel(channel);
+            Object requestObject = new Object();
+            header.request(requestObject, 1000);
+        });
     }
 
     @Test
-    public void closeTest() {
-        Assert.assertFalse(channel.isClosed());
+    void isClosedTest() {
+        Assertions.assertFalse(header.isClosed());
+    }
+
+    @Test
+    void closeTest() {
+        Assertions.assertFalse(channel.isClosed());
         header.close();
-        Assert.assertTrue(channel.isClosed());
+        Assertions.assertTrue(channel.isClosed());
     }
 
-
     @Test
-    public void closeWithTimeoutTest02() {
-        Assert.assertFalse(channel.isClosed());
+    void closeWithTimeoutTest02() {
+        Assertions.assertFalse(channel.isClosed());
         Request request = new Request();
-        DefaultFuture.newFuture(channel, request, 100);
+        DefaultFuture.newFuture(channel, request, 100, null);
         header.close(100);
-        //return directly
+        // return directly
         header.close(1000);
     }
 
-
     @Test
-    public void startCloseTest() {
+    void startCloseTest() {
         try {
             boolean isClosing = channel.isClosing();
-            Assert.assertFalse(isClosing);
+            Assertions.assertFalse(isClosing);
             header.startClose();
             isClosing = channel.isClosing();
-            Assert.assertTrue(isClosing);
+            Assertions.assertTrue(isClosing);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
     @Test
-    public void getLocalAddressTest() {
-        Assert.assertNull(header.getLocalAddress());
+    void getLocalAddressTest() {
+        Assertions.assertNull(header.getLocalAddress());
     }
 
     @Test
-    public void getRemoteAddressTest() {
-        Assert.assertNull(header.getRemoteAddress());
+    void getRemoteAddressTest() {
+        Assertions.assertNull(header.getRemoteAddress());
     }
 
     @Test
-    public void getUrlTest() {
-        Assert.assertEquals(header.getUrl(), URL.valueOf("dubbo://localhost:20880"));
+    void getUrlTest() {
+        Assertions.assertEquals(header.getUrl(), URL.valueOf("dubbo://localhost:20880"));
     }
 
     @Test
-    public void isConnectedTest() {
-        Assert.assertFalse(header.isConnected());
-    }
-
-
-    @Test
-    public void getChannelHandlerTest() {
-        Assert.assertNull(header.getChannelHandler());
+    void isConnectedTest() {
+        Assertions.assertFalse(header.isConnected());
     }
 
     @Test
-    public void getExchangeHandlerTest() {
-        Assert.assertNull(header.getExchangeHandler());
+    void getChannelHandlerTest() {
+        Assertions.assertNull(header.getChannelHandler());
     }
 
+    @Test
+    void getExchangeHandlerTest() {
+        Assertions.assertNull(header.getExchangeHandler());
+    }
 
     @Test
-    public void getAttributeAndSetAttributeTest() {
+    void getAttributeAndSetAttributeTest() {
         header.setAttribute("test", "test");
-        Assert.assertEquals(header.getAttribute("test"), "test");
-        Assert.assertTrue(header.hasAttribute("test"));
+        Assertions.assertEquals(header.getAttribute("test"), "test");
+        Assertions.assertTrue(header.hasAttribute("test"));
     }
 
     @Test
-    public void removeAttributeTest() {
+    void removeAttributeTest() {
         header.setAttribute("test", "test");
-        Assert.assertEquals(header.getAttribute("test"), "test");
+        Assertions.assertEquals(header.getAttribute("test"), "test");
         header.removeAttribute("test");
-        Assert.assertFalse(header.hasAttribute("test"));
+        Assertions.assertFalse(header.hasAttribute("test"));
     }
 
-
     @Test
-    public void hasAttributeTest() {
-        Assert.assertFalse(header.hasAttribute("test"));
+    void hasAttributeTest() {
+        Assertions.assertFalse(header.hasAttribute("test"));
         header.setAttribute("test", "test");
-        Assert.assertTrue(header.hasAttribute("test"));
+        Assertions.assertTrue(header.hasAttribute("test"));
     }
 
     @Test
-    public void hashCodeTest(){
+    void hashCodeTest() {
         final int prime = 31;
         int result = 1;
         result = prime * result + ((channel == null) ? 0 : channel.hashCode());
 
-        Assert.assertEquals(header.hashCode(),result);
+        Assertions.assertEquals(header.hashCode(), result);
     }
-
-    @Test(expected = IllegalArgumentException.class)
-    public void equalsTest(){
-        Assert.assertEquals(header, new HeaderExchangeChannel(channel));
-        header = new HeaderExchangeChannel(null);
-        Assert.assertNotEquals(header, new HeaderExchangeChannel(channel));
-    }
-
 
     @Test
-    public void toStringTest(){
-        Assert.assertEquals(header.toString(),channel.toString());
+    void equalsTest() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            Assertions.assertEquals(header, new HeaderExchangeChannel(channel));
+            header = new HeaderExchangeChannel(null);
+            Assertions.assertNotEquals(header, new HeaderExchangeChannel(channel));
+        });
+    }
+
+    @Test
+    void toStringTest() {
+        Assertions.assertEquals(header.toString(), channel.toString());
     }
 }
-

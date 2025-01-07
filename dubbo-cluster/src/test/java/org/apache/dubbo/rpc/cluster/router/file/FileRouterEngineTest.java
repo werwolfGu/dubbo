@@ -16,124 +16,137 @@
  */
 package org.apache.dubbo.rpc.cluster.router.file;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionLoader;
+import org.apache.dubbo.metrics.event.MetricsDispatcher;
+import org.apache.dubbo.rpc.AppResponse;
 import org.apache.dubbo.rpc.Invocation;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Result;
+import org.apache.dubbo.rpc.RpcContext;
 import org.apache.dubbo.rpc.RpcException;
 import org.apache.dubbo.rpc.RpcInvocation;
-import org.apache.dubbo.rpc.RpcResult;
 import org.apache.dubbo.rpc.cluster.Directory;
 import org.apache.dubbo.rpc.cluster.LoadBalance;
-import org.apache.dubbo.rpc.cluster.RouterFactory;
 import org.apache.dubbo.rpc.cluster.directory.StaticDirectory;
+import org.apache.dubbo.rpc.cluster.router.state.StateRouterFactory;
 import org.apache.dubbo.rpc.cluster.support.AbstractClusterInvoker;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.apache.dubbo.rpc.model.ApplicationModel;
 
 import javax.script.ScriptEngineManager;
+
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.apache.dubbo.common.constants.CommonConstants.ENABLE_CONNECTIVITY_VALIDATION;
+import static org.apache.dubbo.rpc.cluster.Constants.RUNTIME_KEY;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 @SuppressWarnings("unchecked")
-public class FileRouterEngineTest {
+class FileRouterEngineTest {
     private static boolean isScriptUnsupported = new ScriptEngineManager().getEngineByName("javascript") == null;
     List<Invoker<FileRouterEngineTest>> invokers = new ArrayList<Invoker<FileRouterEngineTest>>();
     Invoker<FileRouterEngineTest> invoker1 = mock(Invoker.class);
     Invoker<FileRouterEngineTest> invoker2 = mock(Invoker.class);
     Invocation invocation;
-    Directory<FileRouterEngineTest> dic;
-    Result result = new RpcResult();
-    private RouterFactory routerFactory = ExtensionLoader.getExtensionLoader(RouterFactory.class).getAdaptiveExtension();
+    StaticDirectory<FileRouterEngineTest> dic;
+    Result result = new AppResponse();
+    private StateRouterFactory routerFactory =
+            ExtensionLoader.getExtensionLoader(StateRouterFactory.class).getAdaptiveExtension();
 
-    @BeforeClass
+    @BeforeAll
     public static void setUpBeforeClass() throws Exception {
+        ApplicationModel.defaultModel().getBeanFactory().registerBean(MetricsDispatcher.class);
+        System.setProperty(ENABLE_CONNECTIVITY_VALIDATION, "false");
     }
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         invokers.add(invoker1);
         invokers.add(invoker2);
     }
 
+    @AfterEach
+    public void teardown() throws Exception {
+        System.clearProperty(ENABLE_CONNECTIVITY_VALIDATION);
+        RpcContext.removeContext();
+    }
+
     @Test
-    public void testRouteNotAvailable() {
+    void testRouteNotAvailable() {
         if (isScriptUnsupported) return;
         URL url = initUrl("notAvailablerule.javascript");
         initInvocation("method1");
-        initDic(url);
         initInvokers(url, true, false);
+        initDic(url);
 
-        MockClusterInvoker<FileRouterEngineTest> sinvoker = new MockClusterInvoker<FileRouterEngineTest>(
-                dic, url);
+        MockClusterInvoker<FileRouterEngineTest> sinvoker = new MockClusterInvoker<FileRouterEngineTest>(dic, url);
         for (int i = 0; i < 100; i++) {
             sinvoker.invoke(invocation);
             Invoker<FileRouterEngineTest> invoker = sinvoker.getSelectedInvoker();
-            Assert.assertEquals(invoker2, invoker);
+            Assertions.assertEquals(invoker2, invoker);
         }
     }
 
     @Test
-    public void testRouteAvailable() {
+    void testRouteAvailable() {
         if (isScriptUnsupported) return;
         URL url = initUrl("availablerule.javascript");
         initInvocation("method1");
-        initDic(url);
         initInvokers(url);
+        initDic(url);
 
-        MockClusterInvoker<FileRouterEngineTest> sinvoker = new MockClusterInvoker<FileRouterEngineTest>(
-                dic, url);
+        MockClusterInvoker<FileRouterEngineTest> sinvoker = new MockClusterInvoker<FileRouterEngineTest>(dic, url);
         for (int i = 0; i < 100; i++) {
             sinvoker.invoke(invocation);
             Invoker<FileRouterEngineTest> invoker = sinvoker.getSelectedInvoker();
-            Assert.assertEquals(invoker1, invoker);
+            Assertions.assertEquals(invoker1, invoker);
         }
     }
 
     @Test
-    public void testRouteByMethodName() {
+    void testRouteByMethodName() {
         if (isScriptUnsupported) return;
         URL url = initUrl("methodrule.javascript");
         {
             initInvocation("method1");
-            initDic(url);
             initInvokers(url, true, true);
+            initDic(url);
 
-            MockClusterInvoker<FileRouterEngineTest> sinvoker = new MockClusterInvoker<FileRouterEngineTest>(
-                    dic, url);
+            MockClusterInvoker<FileRouterEngineTest> sinvoker = new MockClusterInvoker<FileRouterEngineTest>(dic, url);
             for (int i = 0; i < 100; i++) {
                 sinvoker.invoke(invocation);
                 Invoker<FileRouterEngineTest> invoker = sinvoker.getSelectedInvoker();
-                Assert.assertEquals(invoker1, invoker);
+                Assertions.assertEquals(invoker1, invoker);
             }
         }
         {
             initInvocation("method2");
-            initDic(url);
             initInvokers(url, true, true);
-            MockClusterInvoker<FileRouterEngineTest> sinvoker = new MockClusterInvoker<FileRouterEngineTest>(
-                    dic, url);
+            initDic(url);
+            MockClusterInvoker<FileRouterEngineTest> sinvoker = new MockClusterInvoker<FileRouterEngineTest>(dic, url);
             for (int i = 0; i < 100; i++) {
                 sinvoker.invoke(invocation);
                 Invoker<FileRouterEngineTest> invoker = sinvoker.getSelectedInvoker();
-                Assert.assertEquals(invoker2, invoker);
+                Assertions.assertEquals(invoker2, invoker);
             }
         }
     }
 
     private URL initUrl(String filename) {
-        filename = getClass().getClassLoader().getResource(getClass().getPackage().getName().replace('.', '/') + "/" + filename).toString();
+        filename = getClass()
+                .getClassLoader()
+                .getResource(getClass().getPackage().getName().replace('.', '/') + "/" + filename)
+                .toString();
         URL url = URL.valueOf(filename);
-        url = url.addParameter(Constants.RUNTIME_KEY, true);
+        url = url.addParameter(RUNTIME_KEY, true);
         return url;
     }
 
@@ -159,7 +172,14 @@ public class FileRouterEngineTest {
     }
 
     private void initDic(URL url) {
-        dic = new StaticDirectory<FileRouterEngineTest>(url, invokers, Arrays.asList(routerFactory.getRouter(url)));
+        // FIXME: this exposes the design flaw in RouterChain
+        URL dicInitUrl = URL.valueOf(
+                "consumer://localhost:20880/org.apache.dubbo.rpc.cluster.router.file.FileRouterEngineTest?application=FileRouterEngineTest");
+        dic = new StaticDirectory<>(dicInitUrl, invokers);
+        dic.buildRouterChain();
+        dic.getRouterChain()
+                .getCurrentChain()
+                .setHeadStateRouter(routerFactory.getRouter(FileRouterEngineTest.class, url));
     }
 
     static class MockClusterInvoker<T> extends AbstractClusterInvoker<T> {
@@ -174,8 +194,8 @@ public class FileRouterEngineTest {
         }
 
         @Override
-        protected Result doInvoke(Invocation invocation, List<Invoker<T>> invokers,
-                                  LoadBalance loadbalance) throws RpcException {
+        protected Result doInvoke(Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance)
+                throws RpcException {
             Invoker<T> invoker = select(loadbalance, invocation, invokers, null);
             selectedInvoker = invoker;
             return null;

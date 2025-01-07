@@ -16,16 +16,26 @@
  */
 package org.apache.dubbo.remoting.telnet.support;
 
-import org.apache.dubbo.common.Constants;
+import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionLoader;
+import org.apache.dubbo.common.utils.StringUtils;
 import org.apache.dubbo.remoting.Channel;
+import org.apache.dubbo.remoting.Constants;
 import org.apache.dubbo.remoting.RemotingException;
 import org.apache.dubbo.remoting.telnet.TelnetHandler;
 import org.apache.dubbo.remoting.transport.ChannelHandlerAdapter;
+import org.apache.dubbo.rpc.model.FrameworkModel;
+
+import static org.apache.dubbo.common.constants.CommonConstants.COMMA_SPLIT_PATTERN;
+import static org.apache.dubbo.remoting.Constants.TELNET_KEY;
 
 public class TelnetHandlerAdapter extends ChannelHandlerAdapter implements TelnetHandler {
 
-    private final ExtensionLoader<TelnetHandler> extensionLoader = ExtensionLoader.getExtensionLoader(TelnetHandler.class);
+    private final ExtensionLoader<TelnetHandler> extensionLoader;
+
+    public TelnetHandlerAdapter(FrameworkModel frameworkModel) {
+        extensionLoader = frameworkModel.getExtensionLoader(TelnetHandler.class);
+    }
 
     @Override
     public String telnet(Channel channel, String message) throws RemotingException {
@@ -49,14 +59,21 @@ public class TelnetHandlerAdapter extends ChannelHandlerAdapter implements Telne
         }
         if (command.length() > 0) {
             if (extensionLoader.hasExtension(command)) {
-                try {
-                    String result = extensionLoader.getExtension(command).telnet(channel, message);
-                    if (result == null) {
-                        return null;
+                if (commandEnabled(channel.getUrl(), command)) {
+                    try {
+                        String result = extensionLoader.getExtension(command).telnet(channel, message);
+                        if (result == null) {
+                            return null;
+                        }
+                        buf.append(result);
+                    } catch (Throwable t) {
+                        buf.append(t.getMessage());
                     }
-                    buf.append(result);
-                } catch (Throwable t) {
-                    buf.append(t.getMessage());
+                } else {
+                    buf.append("Command: ");
+                    buf.append(command);
+                    buf.append(
+                            " disabled for security reasons, please enable support by listing the commands through 'telnet'");
                 }
             } else {
                 buf.append("Unsupported command: ");
@@ -66,10 +83,23 @@ public class TelnetHandlerAdapter extends ChannelHandlerAdapter implements Telne
         if (buf.length() > 0) {
             buf.append("\r\n");
         }
-        if (prompt != null && prompt.length() > 0 && !noprompt) {
+        if (StringUtils.isNotEmpty(prompt) && !noprompt) {
             buf.append(prompt);
         }
         return buf.toString();
     }
 
+    private boolean commandEnabled(URL url, String command) {
+        String supportCommands = url.getParameter(TELNET_KEY);
+        if (StringUtils.isEmpty(supportCommands)) {
+            return false;
+        }
+        String[] commands = COMMA_SPLIT_PATTERN.split(supportCommands);
+        for (String c : commands) {
+            if (command.equals(c)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

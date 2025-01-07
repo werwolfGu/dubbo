@@ -16,21 +16,23 @@
  */
 package org.apache.dubbo.remoting.transport.netty4;
 
+import org.apache.dubbo.common.utils.NetUtils;
 import org.apache.dubbo.remoting.RemotingException;
 import org.apache.dubbo.remoting.exchange.ExchangeChannel;
 import org.apache.dubbo.remoting.exchange.ExchangeServer;
-import org.apache.dubbo.remoting.exchange.ResponseFuture;
 import org.apache.dubbo.remoting.exchange.support.Replier;
-import junit.framework.TestCase;
-import org.junit.Assert;
-import org.junit.Test;
+
+import java.util.concurrent.CompletableFuture;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * ClientToServer
  */
-public abstract class ClientToServerTest extends TestCase {
-
-    protected static final String LOCALHOST = "127.0.0.1";
+public abstract class ClientToServerTest {
 
     protected ExchangeServer server;
 
@@ -42,30 +44,26 @@ public abstract class ClientToServerTest extends TestCase {
 
     protected abstract ExchangeChannel newClient(int port) throws RemotingException;
 
-    @Override
+    @BeforeEach
     protected void setUp() throws Exception {
-        super.setUp();
-        int port = (int) (1000 * Math.random() + 10000);
+        int port = NetUtils.getAvailablePort();
         server = newServer(port, handler);
         client = newClient(port);
     }
 
-    @Override
-    protected void tearDown() throws Exception {
-        super.tearDown();
+    @AfterEach
+    protected void tearDown() {
         try {
-            if (server != null)
-                server.close();
+            if (server != null) server.close();
         } finally {
-            if (client != null)
-                client.close();
+            if (client != null) client.close();
         }
     }
 
     @Test
-    public void testFuture() throws Exception {
-        ResponseFuture future = client.request(new World("world"));
+    void testFuture() throws Exception {
+        CompletableFuture<Object> future = client.request(new World("world"));
         Hello result = (Hello) future.get();
-        Assert.assertEquals("hello,world", result.getName());
+        Assertions.assertEquals("hello,world", result.getName());
     }
 }

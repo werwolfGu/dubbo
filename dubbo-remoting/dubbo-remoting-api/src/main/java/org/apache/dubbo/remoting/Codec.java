@@ -16,8 +16,8 @@
  */
 package org.apache.dubbo.remoting;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.extension.Adaptive;
+import org.apache.dubbo.common.extension.ExtensionScope;
 import org.apache.dubbo.common.extension.SPI;
 
 import java.io.IOException;
@@ -28,7 +28,7 @@ import java.io.OutputStream;
  * Codec. (SPI, Singleton, ThreadSafe)
  */
 @Deprecated
-@SPI
+@SPI(scope = ExtensionScope.FRAMEWORK)
 public interface Codec {
 
     /**
@@ -58,5 +58,4 @@ public interface Codec {
      */
     @Adaptive({Constants.CODEC_KEY})
     Object decode(Channel channel, InputStream input) throws IOException;
-
 }

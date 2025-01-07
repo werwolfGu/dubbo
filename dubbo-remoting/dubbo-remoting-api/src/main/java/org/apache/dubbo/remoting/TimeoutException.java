@@ -22,8 +22,7 @@ import java.net.InetSocketAddress;
  * TimeoutException. (API, Prototype, ThreadSafe)
  *
  * @export
- * @see org.apache.dubbo.remoting.exchange.ResponseFuture#get()
- * @see org.apache.dubbo.remoting.exchange.ResponseFuture#get(int)
+ * @see org.apache.dubbo.remoting.exchange.support.DefaultFuture#get()
  */
 public class TimeoutException extends RemotingException {
 
@@ -37,8 +36,8 @@ public class TimeoutException extends RemotingException {
         this.phase = serverSide ? SERVER_SIDE : CLIENT_SIDE;
     }
 
-    public TimeoutException(boolean serverSide, InetSocketAddress localAddress,
-                            InetSocketAddress remoteAddress, String message) {
+    public TimeoutException(
+            boolean serverSide, InetSocketAddress localAddress, InetSocketAddress remoteAddress, String message) {
         super(localAddress, remoteAddress, message);
         this.phase = serverSide ? SERVER_SIDE : CLIENT_SIDE;
     }
@@ -54,5 +53,4 @@ public class TimeoutException extends RemotingException {
     public boolean isClientSide() {
         return phase == 0;
     }
-
 }

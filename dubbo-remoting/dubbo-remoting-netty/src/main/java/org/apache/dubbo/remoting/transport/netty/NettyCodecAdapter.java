@@ -16,10 +16,11 @@
  */
 package org.apache.dubbo.remoting.transport.netty;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.remoting.Codec2;
 import org.apache.dubbo.remoting.buffer.DynamicChannelBuffer;
+
+import java.io.IOException;
 
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
@@ -33,7 +34,10 @@ import org.jboss.netty.channel.MessageEvent;
 import org.jboss.netty.channel.SimpleChannelUpstreamHandler;
 import org.jboss.netty.handler.codec.oneone.OneToOneEncoder;
 
-import java.io.IOException;
+import static org.apache.dubbo.remoting.Constants.BUFFER_KEY;
+import static org.apache.dubbo.remoting.Constants.DEFAULT_BUFFER_SIZE;
+import static org.apache.dubbo.remoting.Constants.MAX_BUFFER_SIZE;
+import static org.apache.dubbo.remoting.Constants.MIN_BUFFER_SIZE;
 
 /**
  * NettyCodecAdapter.
@@ -56,8 +60,8 @@ final class NettyCodecAdapter {
         this.codec = codec;
         this.url = url;
         this.handler = handler;
-        int b = url.getPositiveParameter(Constants.BUFFER_KEY, Constants.DEFAULT_BUFFER_SIZE);
-        this.bufferSize = b >= Constants.MIN_BUFFER_SIZE && b <= Constants.MAX_BUFFER_SIZE ? b : Constants.DEFAULT_BUFFER_SIZE;
+        int b = url.getPositiveParameter(BUFFER_KEY, DEFAULT_BUFFER_SIZE);
+        this.bufferSize = b >= MIN_BUFFER_SIZE && b <= MAX_BUFFER_SIZE ? b : DEFAULT_BUFFER_SIZE;
     }
 
     public ChannelHandler getEncoder() {
@@ -117,8 +121,7 @@ final class NettyCodecAdapter {
                     message.writeBytes(input.toByteBuffer());
                 }
             } else {
-                message = org.apache.dubbo.remoting.buffer.ChannelBuffers.wrappedBuffer(
-                        input.toByteBuffer());
+                message = org.apache.dubbo.remoting.buffer.ChannelBuffers.wrappedBuffer(input.toByteBuffer());
             }
 
             NettyChannel channel = NettyChannel.getOrAddChannel(ctx.getChannel(), url, handler);

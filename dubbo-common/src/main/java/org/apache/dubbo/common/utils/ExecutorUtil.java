@@ -16,38 +16,50 @@
  */
 package org.apache.dubbo.common.utils;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.URL;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import static org.apache.dubbo.common.constants.CommonConstants.THREAD_NAME_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.COMMON_UNEXPECTED_EXECUTORS_SHUTDOWN;
+
 public class ExecutorUtil {
-    private static final Logger logger = LoggerFactory.getLogger(ExecutorUtil.class);
-    private static final ThreadPoolExecutor shutdownExecutor = new ThreadPoolExecutor(0, 1,
-            0L, TimeUnit.MILLISECONDS,
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(ExecutorUtil.class);
+    private static final ThreadPoolExecutor SHUTDOWN_EXECUTOR = new ThreadPoolExecutor(
+            0,
+            1,
+            0L,
+            TimeUnit.MILLISECONDS,
             new LinkedBlockingQueue<Runnable>(100),
             new NamedThreadFactory("Close-ExecutorService-Timer", true));
 
     public static boolean isTerminated(Executor executor) {
-        if (executor instanceof ExecutorService) {
-            if (((ExecutorService) executor).isTerminated()) {
-                return true;
-            }
+        if (!(executor instanceof ExecutorService)) {
+            return false;
         }
-        return false;
+        return ((ExecutorService) executor).isTerminated();
+    }
+
+    public static boolean isShutdown(Executor executor) {
+        if (!(executor instanceof ExecutorService)) {
+            return false;
+        }
+        return ((ExecutorService) executor).isShutdown();
     }
 
     /**
      * Use the shutdown pattern from:
-     *  https://docs.oracle.com/javase/8/docs/api/java/util/concurrent/ExecutorService.html
+     * https://docs.oracle.com/javase/8/docs/api/java/util/concurrent/ExecutorService.html
+     *
      * @param executor the Executor to shutdown
-     * @param timeout the timeout in milliseconds before termination
+     * @param timeout  the timeout in milliseconds before termination
      */
     public static void gracefulShutdown(Executor executor, int timeout) {
         if (!(executor instanceof ExecutorService) || isTerminated(executor)) {
@@ -57,9 +69,7 @@ public class ExecutorUtil {
         try {
             // Disable new tasks from being submitted
             es.shutdown();
-        } catch (SecurityException ex2) {
-            return;
-        } catch (NullPointerException ex2) {
+        } catch (SecurityException | NullPointerException ex2) {
             return;
         }
         try {
@@ -83,9 +93,7 @@ public class ExecutorUtil {
         final ExecutorService es = (ExecutorService) executor;
         try {
             es.shutdownNow();
-        } catch (SecurityException ex2) {
-            return;
-        } catch (NullPointerException ex2) {
+        } catch (SecurityException | NullPointerException ex2) {
             return;
         }
         try {
@@ -100,21 +108,18 @@ public class ExecutorUtil {
 
     private static void newThreadToCloseExecutor(final ExecutorService es) {
         if (!isTerminated(es)) {
-            shutdownExecutor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        for (int i = 0; i < 1000; i++) {
-                            es.shutdownNow();
-                            if (es.awaitTermination(10, TimeUnit.MILLISECONDS)) {
-                                break;
-                            }
+            SHUTDOWN_EXECUTOR.execute(() -> {
+                try {
+                    for (int i = 0; i < 1000; i++) {
+                        es.shutdownNow();
+                        if (es.awaitTermination(10, TimeUnit.MILLISECONDS)) {
+                            break;
                         }
-                    } catch (InterruptedException ex) {
-                        Thread.currentThread().interrupt();
-                    } catch (Throwable e) {
-                        logger.warn(e.getMessage(), e);
                     }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } catch (Throwable e) {
+                    logger.warn(COMMON_UNEXPECTED_EXECUTORS_SHUTDOWN, "", "", e.getMessage(), e);
                 }
             });
         }
@@ -126,9 +131,16 @@ public class ExecutorUtil {
      * @return new url with updated thread name
      */
     public static URL setThreadName(URL url, String defaultName) {
-        String name = url.getParameter(Constants.THREAD_NAME_KEY, defaultName);
+        String name = url.getParameter(THREAD_NAME_KEY, defaultName);
         name = name + "-" + url.getAddress();
-        url = url.addParameter(Constants.THREAD_NAME_KEY, name);
+        url = url.addParameter(THREAD_NAME_KEY, name);
         return url;
+    }
+
+    public static void cancelScheduledFuture(ScheduledFuture<?> scheduledFuture) {
+        ScheduledFuture<?> future = scheduledFuture;
+        if (future != null && !future.isCancelled()) {
+            future.cancel(true);
+        }
     }
 }

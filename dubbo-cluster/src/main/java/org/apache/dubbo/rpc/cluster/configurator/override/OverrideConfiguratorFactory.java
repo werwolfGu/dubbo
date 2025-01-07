@@ -21,7 +21,7 @@ import org.apache.dubbo.rpc.cluster.Configurator;
 import org.apache.dubbo.rpc.cluster.ConfiguratorFactory;
 
 /**
- * AbsentConfiguratorFactory
+ * OverrideConfiguratorFactory
  *
  */
 public class OverrideConfiguratorFactory implements ConfiguratorFactory {
@@ -30,5 +30,4 @@ public class OverrideConfiguratorFactory implements ConfiguratorFactory {
     public Configurator getConfigurator(URL url) {
         return new OverrideConfigurator(url);
     }
-
 }

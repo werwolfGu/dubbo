@@ -16,37 +16,76 @@
  */
 package org.apache.dubbo.common.compiler.support;
 
-import org.junit.Assert;
-import org.junit.Test;
-
 import java.lang.reflect.Method;
 
-public class JdkCompilerTest extends JavaCodeTest{
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+class JdkCompilerTest extends JavaCodeTest {
 
     @Test
-    public void test_compileJavaClass() throws Exception {
+    void test_compileJavaClass() throws Exception {
         JdkCompiler compiler = new JdkCompiler();
-        Class<?> clazz = compiler.compile(getSimpleCode(), JdkCompiler.class.getClassLoader());
-        Object instance = clazz.newInstance();
+        Class<?> clazz = compiler.compile(JavaCodeTest.class, getSimpleCode(), JdkCompiler.class.getClassLoader());
+        Object instance = clazz.getDeclaredConstructor().newInstance();
         Method sayHello = instance.getClass().getMethod("sayHello");
-        Assert.assertEquals("Hello world!", sayHello.invoke(instance));
+        Assertions.assertEquals("Hello world!", sayHello.invoke(instance));
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void test_compileJavaClass0() throws Exception {
-        JdkCompiler compiler = new JdkCompiler();
-        Class<?> clazz = compiler.compile(getSimpleCodeWithoutPackage(), JdkCompiler.class.getClassLoader());
-        Object instance = clazz.newInstance();
-        Method sayHello = instance.getClass().getMethod("sayHello");
-        Assert.assertEquals("Hello world!", sayHello.invoke(instance));
+    @Test
+    void test_compileJavaClass0() {
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            JdkCompiler compiler = new JdkCompiler();
+            Class<?> clazz = compiler.compile(
+                    JavaCodeTest.class, getSimpleCodeWithoutPackage(), JdkCompiler.class.getClassLoader());
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+            Method sayHello = instance.getClass().getMethod("sayHello");
+            Assertions.assertEquals("Hello world!", sayHello.invoke(instance));
+        });
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void test_compileJavaClass1() throws Exception {
-        JdkCompiler compiler = new JdkCompiler();
-        Class<?> clazz = compiler.compile(getSimpleCodeWithSyntax(), JdkCompiler.class.getClassLoader());
-        Object instance = clazz.newInstance();
+    @Test
+    void test_compileJavaClass1() {
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            JdkCompiler compiler = new JdkCompiler();
+            Class<?> clazz =
+                    compiler.compile(JavaCodeTest.class, getSimpleCodeWithSyntax(), JdkCompiler.class.getClassLoader());
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+            Method sayHello = instance.getClass().getMethod("sayHello");
+            Assertions.assertEquals("Hello world!", sayHello.invoke(instance));
+        });
+    }
+
+    @Test
+    void test_compileJavaClass_java8() throws Exception {
+        JdkCompiler compiler = new JdkCompiler("1.8");
+        Class<?> clazz = compiler.compile(JavaCodeTest.class, getSimpleCode(), JdkCompiler.class.getClassLoader());
+        Object instance = clazz.getDeclaredConstructor().newInstance();
         Method sayHello = instance.getClass().getMethod("sayHello");
-        Assert.assertEquals("Hello world!", sayHello.invoke(instance));
+        Assertions.assertEquals("Hello world!", sayHello.invoke(instance));
+    }
+
+    @Test
+    void test_compileJavaClass0_java8() {
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            JdkCompiler compiler = new JdkCompiler("1.8");
+            Class<?> clazz = compiler.compile(
+                    JavaCodeTest.class, getSimpleCodeWithoutPackage(), JdkCompiler.class.getClassLoader());
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+            Method sayHello = instance.getClass().getMethod("sayHello");
+            Assertions.assertEquals("Hello world!", sayHello.invoke(instance));
+        });
+    }
+
+    @Test
+    void test_compileJavaClass1_java8() {
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            JdkCompiler compiler = new JdkCompiler("1.8");
+            Class<?> clazz =
+                    compiler.compile(JavaCodeTest.class, getSimpleCodeWithSyntax(), JdkCompiler.class.getClassLoader());
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+            Method sayHello = instance.getClass().getMethod("sayHello");
+            Assertions.assertEquals("Hello world!", sayHello.invoke(instance));
+        });
     }
 }

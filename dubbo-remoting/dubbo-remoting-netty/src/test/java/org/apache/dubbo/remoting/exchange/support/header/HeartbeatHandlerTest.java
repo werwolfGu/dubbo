@@ -14,14 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.dubbo.remoting.exchange.support.header;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.logger.Logger;
 import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.common.utils.NetUtils;
+import org.apache.dubbo.config.ApplicationConfig;
 import org.apache.dubbo.remoting.Channel;
+import org.apache.dubbo.remoting.Constants;
 import org.apache.dubbo.remoting.RemotingException;
 import org.apache.dubbo.remoting.exchange.ExchangeChannel;
 import org.apache.dubbo.remoting.exchange.ExchangeClient;
@@ -29,20 +30,25 @@ import org.apache.dubbo.remoting.exchange.ExchangeHandler;
 import org.apache.dubbo.remoting.exchange.ExchangeServer;
 import org.apache.dubbo.remoting.exchange.Exchangers;
 import org.apache.dubbo.remoting.transport.dispatcher.FakeChannelHandlers;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.apache.dubbo.rpc.model.ApplicationModel;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 
-public class HeartbeatHandlerTest {
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import static org.apache.dubbo.common.constants.CommonConstants.EXECUTOR_MANAGEMENT_MODE_DEFAULT;
+
+class HeartbeatHandlerTest {
 
     private static final Logger logger = LoggerFactory.getLogger(HeartbeatHandlerTest.class);
 
     private ExchangeServer server;
     private ExchangeClient client;
 
-    @After
+    @AfterEach
     public void after() throws Exception {
         if (client != null) {
             client.close();
@@ -53,13 +59,28 @@ public class HeartbeatHandlerTest {
             server.close();
             server = null;
         }
+
+        FakeChannelHandlers.resetChannelHandlers();
+
+        // wait for timer to finish
+        Thread.sleep(2000);
     }
 
     @Test
-    public void testServerHeartbeat() throws Exception {
-        URL serverURL = URL.valueOf("header://localhost:55555?transporter=netty3");
-        serverURL = serverURL.addParameter(Constants.HEARTBEAT_KEY, 1000);
-        TestHeartbeatHandler handler = new TestHeartbeatHandler();
+    void testServerHeartbeat() throws Exception {
+        FakeChannelHandlers.resetChannelHandlers();
+        URL serverURL = URL.valueOf("telnet://localhost:" + NetUtils.getAvailablePort(56780))
+                .addParameter(Constants.EXCHANGER_KEY, HeaderExchanger.NAME)
+                .addParameter(Constants.TRANSPORTER_KEY, "netty3")
+                .addParameter(Constants.HEARTBEAT_KEY, 1000);
+        CountDownLatch connect = new CountDownLatch(1);
+        CountDownLatch disconnect = new CountDownLatch(1);
+        ApplicationModel applicationModel = ApplicationModel.defaultModel();
+        ApplicationConfig applicationConfig = new ApplicationConfig("provider-app");
+        applicationConfig.setExecutorManagementMode(EXECUTOR_MANAGEMENT_MODE_DEFAULT);
+        applicationModel.getApplicationConfigManager().setApplication(applicationConfig);
+        serverURL = serverURL.setScopeModel(applicationModel);
+        TestHeartbeatHandler handler = new TestHeartbeatHandler(connect, disconnect);
         server = Exchangers.bind(serverURL, handler);
         System.out.println("Server bind successfully");
 
@@ -69,42 +90,63 @@ public class HeartbeatHandlerTest {
         // Let the client not reply to the heartbeat, and turn off automatic reconnect to simulate the client dropped.
         serverURL = serverURL.addParameter(Constants.HEARTBEAT_KEY, 600 * 1000);
         serverURL = serverURL.addParameter(Constants.RECONNECT_KEY, false);
+        serverURL = serverURL.addParameter(Constants.CODEC_KEY, "telnet");
 
         client = Exchangers.connect(serverURL);
-        Thread.sleep(10000);
-        Assert.assertTrue(handler.disconnectCount > 0);
+        disconnect.await();
+        Assertions.assertTrue(handler.disconnectCount > 0);
         System.out.println("disconnect count " + handler.disconnectCount);
     }
 
     @Test
-    public void testHeartbeat() throws Exception {
-        URL serverURL = URL.valueOf("header://localhost:55555?transporter=netty3");
-        serverURL = serverURL.addParameter(Constants.HEARTBEAT_KEY, 1000);
-        TestHeartbeatHandler handler = new TestHeartbeatHandler();
+    void testHeartbeat() throws Exception {
+        URL serverURL = URL.valueOf("telnet://localhost:" + NetUtils.getAvailablePort(56785))
+                .addParameter(Constants.EXCHANGER_KEY, HeaderExchanger.NAME)
+                .addParameter(Constants.TRANSPORTER_KEY, "netty3")
+                .addParameter(Constants.HEARTBEAT_KEY, 1000)
+                .addParameter(Constants.CODEC_KEY, "telnet");
+        ApplicationModel applicationModel = ApplicationModel.defaultModel();
+        ApplicationConfig applicationConfig = new ApplicationConfig("provider-app");
+        applicationConfig.setExecutorManagementMode(EXECUTOR_MANAGEMENT_MODE_DEFAULT);
+        applicationModel.getApplicationConfigManager().setApplication(applicationConfig);
+        serverURL = serverURL.setScopeModel(applicationModel);
+        CountDownLatch connect = new CountDownLatch(1);
+        CountDownLatch disconnect = new CountDownLatch(1);
+        TestHeartbeatHandler handler = new TestHeartbeatHandler(connect, disconnect);
         server = Exchangers.bind(serverURL, handler);
         System.out.println("Server bind successfully");
 
         client = Exchangers.connect(serverURL);
-        Thread.sleep(10000);
+        connect.await();
         System.err.println("++++++++++++++ disconnect count " + handler.disconnectCount);
         System.err.println("++++++++++++++ connect count " + handler.connectCount);
-        Assert.assertTrue(handler.disconnectCount == 0);
-        Assert.assertTrue(handler.connectCount == 1);
+        Assertions.assertEquals(0, handler.disconnectCount);
+        Assertions.assertEquals(1, handler.connectCount);
     }
 
     @Test
-    public void testClientHeartbeat() throws Exception {
+    void testClientHeartbeat() throws Exception {
         FakeChannelHandlers.setTestingChannelHandlers();
-        URL serverURL = URL.valueOf("header://localhost:55555?transporter=netty3");
-        TestHeartbeatHandler handler = new TestHeartbeatHandler();
+        URL serverURL = URL.valueOf("telnet://localhost:" + NetUtils.getAvailablePort(56790))
+                .addParameter(Constants.EXCHANGER_KEY, HeaderExchanger.NAME)
+                .addParameter(Constants.TRANSPORTER_KEY, "netty3")
+                .addParameter(Constants.CODEC_KEY, "telnet");
+        ApplicationModel applicationModel = ApplicationModel.defaultModel();
+        ApplicationConfig applicationConfig = new ApplicationConfig("provider-app");
+        applicationConfig.setExecutorManagementMode(EXECUTOR_MANAGEMENT_MODE_DEFAULT);
+        applicationModel.getApplicationConfigManager().setApplication(applicationConfig);
+        serverURL = serverURL.setScopeModel(applicationModel);
+        CountDownLatch connect = new CountDownLatch(1);
+        CountDownLatch disconnect = new CountDownLatch(1);
+        TestHeartbeatHandler handler = new TestHeartbeatHandler(connect, disconnect);
         server = Exchangers.bind(serverURL, handler);
         System.out.println("Server bind successfully");
 
         FakeChannelHandlers.resetChannelHandlers();
         serverURL = serverURL.addParameter(Constants.HEARTBEAT_KEY, 1000);
         client = Exchangers.connect(serverURL);
-        Thread.sleep(10000);
-        Assert.assertTrue(handler.connectCount > 0);
+        connect.await();
+        Assertions.assertTrue(handler.connectCount > 0);
         System.out.println("connect count " + handler.connectCount);
     }
 
@@ -112,6 +154,13 @@ public class HeartbeatHandlerTest {
 
         public int disconnectCount = 0;
         public int connectCount = 0;
+        private CountDownLatch connectCountDownLatch;
+        private CountDownLatch disconnectCountDownLatch;
+
+        public TestHeartbeatHandler(CountDownLatch connectCountDownLatch, CountDownLatch disconnectCountDownLatch) {
+            this.connectCountDownLatch = connectCountDownLatch;
+            this.disconnectCountDownLatch = disconnectCountDownLatch;
+        }
 
         public CompletableFuture<Object> reply(ExchangeChannel channel, Object request) throws RemotingException {
             return CompletableFuture.completedFuture(request);
@@ -120,17 +169,17 @@ public class HeartbeatHandlerTest {
         @Override
         public void connected(Channel channel) throws RemotingException {
             ++connectCount;
+            connectCountDownLatch.countDown();
         }
 
         @Override
         public void disconnected(Channel channel) throws RemotingException {
             ++disconnectCount;
+            disconnectCountDownLatch.countDown();
         }
 
         @Override
-        public void sent(Channel channel, Object message) throws RemotingException {
-
-        }
+        public void sent(Channel channel, Object message) throws RemotingException {}
 
         @Override
         public void received(Channel channel, Object message) throws RemotingException {
@@ -146,5 +195,4 @@ public class HeartbeatHandlerTest {
             return message;
         }
     }
-
 }

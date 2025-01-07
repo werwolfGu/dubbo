@@ -16,11 +16,12 @@
  */
 package org.apache.dubbo.config.spring.context.annotation.provider;
 
+import org.apache.dubbo.config.annotation.Method;
 import org.apache.dubbo.config.spring.api.Box;
 import org.apache.dubbo.config.spring.api.DemoService;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 
 /**
  * {@link DemoService} Service implementation
@@ -31,8 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
         version = "2.5.7",
         application = "${demo.service.application}",
         protocol = "${demo.service.protocol}",
-        registry = "${demo.service.registry}"
-)
+        registry = "${demo.service.registry}",
+        methods = @Method(timeout = 100, name = "sayName"))
 @Service
 @Transactional
 public class DemoServiceImpl implements DemoService {
@@ -44,11 +45,6 @@ public class DemoServiceImpl implements DemoService {
 
     @Override
     public Box getBox() {
-        return new Box() {
-            @Override
-            public String getName() {
-                return "MyBox";
-            }
-        };
+        throw new UnsupportedOperationException("For Purposes!");
     }
 }

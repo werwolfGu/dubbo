@@ -16,31 +16,45 @@
  */
 package org.apache.dubbo.qos.protocol;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.URL;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.extension.Activate;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.common.utils.StringUtils;
+import org.apache.dubbo.qos.api.PermissionLevel;
 import org.apache.dubbo.qos.common.QosConstants;
 import org.apache.dubbo.qos.server.Server;
 import org.apache.dubbo.rpc.Exporter;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Protocol;
+import org.apache.dubbo.rpc.ProtocolServer;
 import org.apache.dubbo.rpc.RpcException;
+import org.apache.dubbo.rpc.model.FrameworkModel;
+import org.apache.dubbo.rpc.model.ScopeModelAware;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.apache.dubbo.common.Constants.ACCEPT_FOREIGN_IP;
-import static org.apache.dubbo.common.Constants.QOS_ENABLE;
-import static org.apache.dubbo.common.Constants.QOS_PORT;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.QOS_FAILED_START_SERVER;
+import static org.apache.dubbo.common.constants.QosConstants.ACCEPT_FOREIGN_IP;
+import static org.apache.dubbo.common.constants.QosConstants.ACCEPT_FOREIGN_IP_WHITELIST;
+import static org.apache.dubbo.common.constants.QosConstants.ANONYMOUS_ACCESS_ALLOW_COMMANDS;
+import static org.apache.dubbo.common.constants.QosConstants.ANONYMOUS_ACCESS_PERMISSION_LEVEL;
+import static org.apache.dubbo.common.constants.QosConstants.QOS_CHECK;
+import static org.apache.dubbo.common.constants.QosConstants.QOS_ENABLE;
+import static org.apache.dubbo.common.constants.QosConstants.QOS_HOST;
+import static org.apache.dubbo.common.constants.QosConstants.QOS_PORT;
 
+@Activate(order = 200)
+public class QosProtocolWrapper implements Protocol, ScopeModelAware {
 
-public class QosProtocolWrapper implements Protocol {
+    private final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(QosProtocolWrapper.class);
 
-    private final Logger logger = LoggerFactory.getLogger(QosProtocolWrapper.class);
+    private final AtomicBoolean hasStarted = new AtomicBoolean(false);
 
-    private static AtomicBoolean hasStarted = new AtomicBoolean(false);
+    private final Protocol protocol;
 
-    private Protocol protocol;
+    private FrameworkModel frameworkModel;
 
     public QosProtocolWrapper(Protocol protocol) {
         if (protocol == null) {
@@ -50,63 +64,99 @@ public class QosProtocolWrapper implements Protocol {
     }
 
     @Override
+    public void setFrameworkModel(FrameworkModel frameworkModel) {
+        this.frameworkModel = frameworkModel;
+    }
+
+    @Override
     public int getDefaultPort() {
         return protocol.getDefaultPort();
     }
 
     @Override
     public <T> Exporter<T> export(Invoker<T> invoker) throws RpcException {
-        if (Constants.REGISTRY_PROTOCOL.equals(invoker.getUrl().getProtocol())) {
-            startQosServer(invoker.getUrl());
-            return protocol.export(invoker);
-        }
+        startQosServer(invoker.getUrl(), true);
         return protocol.export(invoker);
     }
 
     @Override
     public <T> Invoker<T> refer(Class<T> type, URL url) throws RpcException {
-        if (Constants.REGISTRY_PROTOCOL.equals(url.getProtocol())) {
-            startQosServer(url);
-            return protocol.refer(type, url);
-        }
+        startQosServer(url, false);
         return protocol.refer(type, url);
     }
 
     @Override
     public void destroy() {
         protocol.destroy();
+        stopServer();
     }
 
-    private void startQosServer(URL url) {
-        if (!hasStarted.compareAndSet(false, true)) {
-            return;
-        }
+    @Override
+    public List<ProtocolServer> getServers() {
+        return protocol.getServers();
+    }
+
+    private void startQosServer(URL url, boolean isServer) throws RpcException {
+        boolean qosCheck = url.getParameter(QOS_CHECK, false);
 
         try {
-            boolean qosEnable = url.getParameter(QOS_ENABLE,true);
-            if (!qosEnable) {
-                logger.info("qos won't be started because it is disabled. " +
-                        "Please check dubbo.application.qos.enable is configured either in system property, " +
-                        "dubbo.properties or XML/spring-boot configuration.");
+            if (!hasStarted.compareAndSet(false, true)) {
                 return;
             }
 
+            boolean qosEnable = url.getParameter(QOS_ENABLE, true);
+            if (!qosEnable) {
+                logger.info("qos won't be started because it is disabled. "
+                        + "Please check dubbo.application.qos.enable is configured either in system property, "
+                        + "dubbo.properties or XML/spring-boot configuration.");
+                return;
+            }
+
+            String host = url.getParameter(QOS_HOST);
             int port = url.getParameter(QOS_PORT, QosConstants.DEFAULT_PORT);
-            boolean acceptForeignIp = Boolean.parseBoolean(url.getParameter(ACCEPT_FOREIGN_IP,"false"));
-            Server server = Server.getInstance();
+            boolean acceptForeignIp = Boolean.parseBoolean(url.getParameter(ACCEPT_FOREIGN_IP, "false"));
+            String acceptForeignIpWhitelist = url.getParameter(ACCEPT_FOREIGN_IP_WHITELIST, StringUtils.EMPTY_STRING);
+            String anonymousAccessPermissionLevel =
+                    url.getParameter(ANONYMOUS_ACCESS_PERMISSION_LEVEL, PermissionLevel.PUBLIC.name());
+            String anonymousAllowCommands = url.getParameter(ANONYMOUS_ACCESS_ALLOW_COMMANDS, StringUtils.EMPTY_STRING);
+            Server server = frameworkModel.getBeanFactory().getBean(Server.class);
+
+            if (server.isStarted()) {
+                return;
+            }
+
+            server.setHost(host);
             server.setPort(port);
             server.setAcceptForeignIp(acceptForeignIp);
+            server.setAcceptForeignIpWhitelist(acceptForeignIpWhitelist);
+            server.setAnonymousAccessPermissionLevel(anonymousAccessPermissionLevel);
+            server.setAnonymousAllowCommands(anonymousAllowCommands);
             server.start();
 
         } catch (Throwable throwable) {
-            logger.warn("Fail to start qos server: ", throwable);
+            logger.warn(QOS_FAILED_START_SERVER, "", "", "Fail to start qos server: ", throwable);
+
+            if (qosCheck) {
+                try {
+                    // Stop QoS Server to support re-start if Qos-Check is enabled
+                    stopServer();
+                } catch (Throwable stop) {
+                    logger.warn(QOS_FAILED_START_SERVER, "", "", "Fail to stop qos server: ", stop);
+                }
+                if (isServer) {
+                    // Only throws exception when export services
+                    throw new RpcException(throwable);
+                }
+            }
         }
     }
 
     /*package*/ void stopServer() {
         if (hasStarted.compareAndSet(true, false)) {
-            Server server = Server.getInstance();
-            server.stop();
+            Server server = frameworkModel.getBeanFactory().getBean(Server.class);
+            if (server.isStarted()) {
+                server.stop();
+            }
         }
     }
 }

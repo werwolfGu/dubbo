@@ -14,48 +14,56 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.dubbo.filter;
 
-import org.apache.dubbo.service.MockInvocation;
-import org.apache.dubbo.rpc.Filter;
-import org.apache.dubbo.rpc.Invocation;
-import org.apache.dubbo.rpc.Invoker;
-import org.apache.dubbo.rpc.Result;
 import org.apache.dubbo.rpc.RpcException;
+import org.apache.dubbo.rpc.RpcInvocation;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.Test;
+import com.alibaba.dubbo.rpc.Filter;
+import com.alibaba.dubbo.rpc.Invocation;
+import com.alibaba.dubbo.rpc.Invoker;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.fail;
 
-public class FilterTest {
+class FilterTest {
 
     Filter myFilter = new MyFilter();
 
     @Test
-    public void testInvokeException() {
+    void testInvokeException() {
         try {
-            Invoker<FilterTest> invoker = new MyInvoker<FilterTest>(null);
-            Invocation invocation = new MockInvocation("aa");
+            Invoker<FilterTest> invoker = new LegacyInvoker<FilterTest>(null);
+            Invocation invocation = new LegacyInvocation("aa");
             myFilter.invoke(invoker, invocation);
             fail();
         } catch (RpcException e) {
-            Assert.assertTrue(e.getMessage().contains("arg0 illegal"));
+            Assertions.assertTrue(e.getMessage().contains("arg0 illegal"));
         }
     }
 
     @Test
-    public void testDefault() {
-        Invoker<FilterTest> invoker = new MyInvoker<FilterTest>(null);
-        Invocation invocation = new MockInvocation("bbb");
-        Result res = myFilter.invoke(invoker, invocation);
-        System.out.println(res);
+    void testDefault() throws Throwable {
+        Invoker<FilterTest> invoker = new LegacyInvoker<FilterTest>(null);
+        org.apache.dubbo.rpc.Invocation invocation = new RpcInvocation(
+                null, "echo", "DemoService", "DemoService", new Class[] {String.class}, new Object[] {"bbb"});
+        org.apache.dubbo.rpc.Result res = myFilter.invoke(invoker, invocation);
+        Assertions.assertEquals("alibaba", res.recreate());
     }
 
-    @AfterClass
+    @Test
+    void testRecreate() throws Throwable {
+        Invoker<FilterTest> invoker = new LegacyInvoker<FilterTest>(null);
+        org.apache.dubbo.rpc.Invocation invocation = new RpcInvocation(
+                null, "echo", "DemoService", "DemoService", new Class[] {String.class}, new Object[] {"cc"});
+        org.apache.dubbo.rpc.Result res = myFilter.invoke(invoker, invocation);
+        Assertions.assertEquals("123test", res.recreate());
+    }
+
+    @AfterAll
     public static void tear() {
-        Assert.assertEquals(2, MyFilter.count);
+        Assertions.assertEquals(3, MyFilter.count);
     }
 }

@@ -16,12 +16,11 @@
  */
 package org.apache.dubbo.rpc;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.URL;
+import org.apache.dubbo.common.utils.ConcurrentHashMapUtils;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -34,10 +33,13 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class RpcStatus {
 
-    private static final ConcurrentMap<String, RpcStatus> SERVICE_STATISTICS = new ConcurrentHashMap<String, RpcStatus>();
+    private static final ConcurrentMap<String, RpcStatus> SERVICE_STATISTICS = new ConcurrentHashMap<>();
 
-    private static final ConcurrentMap<String, ConcurrentMap<String, RpcStatus>> METHOD_STATISTICS = new ConcurrentHashMap<String, ConcurrentMap<String, RpcStatus>>();
-    private final ConcurrentMap<String, Object> values = new ConcurrentHashMap<String, Object>();
+    private static final ConcurrentMap<String, ConcurrentMap<String, RpcStatus>> METHOD_STATISTICS =
+            new ConcurrentHashMap<>();
+
+    private final ConcurrentMap<String, Object> values = new ConcurrentHashMap<>();
+
     private final AtomicInteger active = new AtomicInteger();
     private final AtomicLong total = new AtomicLong();
     private final AtomicInteger failed = new AtomicInteger();
@@ -47,14 +49,7 @@ public class RpcStatus {
     private final AtomicLong failedMaxElapsed = new AtomicLong();
     private final AtomicLong succeededMaxElapsed = new AtomicLong();
 
-    /**
-     * Semaphore used to control concurrency limit set by `executes`
-     */
-    private volatile Semaphore executesLimit;
-    private volatile int executesPermits;
-
-    private RpcStatus() {
-    }
+    private RpcStatus() {}
 
     /**
      * @param url
@@ -62,12 +57,7 @@ public class RpcStatus {
      */
     public static RpcStatus getStatus(URL url) {
         String uri = url.toIdentityString();
-        RpcStatus status = SERVICE_STATISTICS.get(uri);
-        if (status == null) {
-            SERVICE_STATISTICS.putIfAbsent(uri, new RpcStatus());
-            status = SERVICE_STATISTICS.get(uri);
-        }
-        return status;
+        return ConcurrentHashMapUtils.computeIfAbsent(SERVICE_STATISTICS, uri, key -> new RpcStatus());
     }
 
     /**
@@ -85,17 +75,9 @@ public class RpcStatus {
      */
     public static RpcStatus getStatus(URL url, String methodName) {
         String uri = url.toIdentityString();
-        ConcurrentMap<String, RpcStatus> map = METHOD_STATISTICS.get(uri);
-        if (map == null) {
-            METHOD_STATISTICS.putIfAbsent(uri, new ConcurrentHashMap<String, RpcStatus>());
-            map = METHOD_STATISTICS.get(uri);
-        }
-        RpcStatus status = map.get(methodName);
-        if (status == null) {
-            map.putIfAbsent(methodName, new RpcStatus());
-            status = map.get(methodName);
-        }
-        return status;
+        ConcurrentMap<String, RpcStatus> map =
+                ConcurrentHashMapUtils.computeIfAbsent(METHOD_STATISTICS, uri, k -> new ConcurrentHashMap<>());
+        return ConcurrentHashMapUtils.computeIfAbsent(map, methodName, k -> new RpcStatus());
     }
 
     /**
@@ -109,16 +91,35 @@ public class RpcStatus {
         }
     }
 
+    public static void beginCount(URL url, String methodName) {
+        beginCount(url, methodName, Integer.MAX_VALUE);
+    }
+
     /**
      * @param url
      */
-    public static void beginCount(URL url, String methodName) {
-        beginCount(getStatus(url));
-        beginCount(getStatus(url, methodName));
-    }
+    public static boolean beginCount(URL url, String methodName, int max) {
+        max = (max <= 0) ? Integer.MAX_VALUE : max;
+        RpcStatus appStatus = getStatus(url);
+        RpcStatus methodStatus = getStatus(url, methodName);
+        if (methodStatus.active.get() == Integer.MAX_VALUE) {
+            return false;
+        }
+        for (int i; ; ) {
+            i = methodStatus.active.get();
 
-    private static void beginCount(RpcStatus status) {
-        status.active.incrementAndGet();
+            if (i == Integer.MAX_VALUE || i + 1 > max) {
+                return false;
+            }
+
+            if (methodStatus.active.compareAndSet(i, i + 1)) {
+                break;
+            }
+        }
+
+        appStatus.active.incrementAndGet();
+
+        return true;
     }
 
     /**
@@ -135,13 +136,16 @@ public class RpcStatus {
         status.active.decrementAndGet();
         status.total.incrementAndGet();
         status.totalElapsed.addAndGet(elapsed);
+
         if (status.maxElapsed.get() < elapsed) {
             status.maxElapsed.set(elapsed);
         }
+
         if (succeeded) {
             if (status.succeededMaxElapsed.get() < elapsed) {
                 status.succeededMaxElapsed.set(elapsed);
             }
+
         } else {
             status.failed.incrementAndGet();
             status.failedElapsed.addAndGet(elapsed);
@@ -310,28 +314,5 @@ public class RpcStatus {
             return getTotal() / (getTotalElapsed() / 1000L);
         }
         return getTotal();
-    }
-
-    /**
-     * Get the semaphore for thread number. Semaphore's permits is decided by {@link Constants#EXECUTES_KEY}
-     *
-     * @param maxThreadNum value of {@link Constants#EXECUTES_KEY}
-     * @return thread number semaphore
-     */
-    public Semaphore getSemaphore(int maxThreadNum) {
-        if(maxThreadNum <= 0) {
-            return null;
-        }
-
-        if (executesLimit == null || executesPermits != maxThreadNum) {
-            synchronized (this) {
-                if (executesLimit == null || executesPermits != maxThreadNum) {
-                    executesLimit = new Semaphore(maxThreadNum);
-                    executesPermits = maxThreadNum;
-                }
-            }
-        }
-
-        return executesLimit;
     }
 }

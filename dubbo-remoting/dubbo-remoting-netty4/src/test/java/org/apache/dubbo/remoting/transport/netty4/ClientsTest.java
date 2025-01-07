@@ -18,14 +18,20 @@ package org.apache.dubbo.remoting.transport.netty4;
 
 import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.remoting.Transporter;
-import org.junit.Test;
 
-import static org.junit.Assert.*;
-import static org.junit.matchers.JUnitMatchers.containsString;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-public class ClientsTest {
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.fail;
+
+class ClientsTest {
     @Test
-    public void testGetTransportEmpty() {
+    void testGetTransportEmpty() {
+
         try {
             ExtensionLoader.getExtensionLoader(Transporter.class).getExtension("");
             fail();
@@ -34,21 +40,31 @@ public class ClientsTest {
         }
     }
 
-    @Test(expected = IllegalArgumentException.class)
-    public void testGetTransportNull() {
-        String name = null;
-        ExtensionLoader.getExtensionLoader(Transporter.class).getExtension(name);
+    @Test
+    void testGetTransportNull() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            String name = null;
+            ExtensionLoader.getExtensionLoader(Transporter.class).getExtension(name);
+        });
     }
 
     @Test
-    public void testGetTransport3() {
+    void testGetTransport3() {
         String name = "netty4";
-        assertEquals(NettyTransporter.class, ExtensionLoader.getExtensionLoader(Transporter.class).getExtension(name).getClass());
+        assertEquals(
+                NettyTransporter.class,
+                ExtensionLoader.getExtensionLoader(Transporter.class)
+                        .getExtension(name)
+                        .getClass());
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void testGetTransportWrong() {
-        String name = "nety";
-        assertNull(ExtensionLoader.getExtensionLoader(Transporter.class).getExtension(name).getClass());
+    @Test
+    void testGetTransportWrong() {
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            String name = "nety";
+            assertNull(ExtensionLoader.getExtensionLoader(Transporter.class)
+                    .getExtension(name)
+                    .getClass());
+        });
     }
 }

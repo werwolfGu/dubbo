@@ -16,22 +16,23 @@
  */
 package org.apache.dubbo.rpc.cluster.support;
 
-import org.apache.dubbo.common.Constants;
-import org.apache.dubbo.common.URL;
-import org.apache.dubbo.common.extension.ExtensionLoader;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.constants.LoggerCodeConstants;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.common.utils.ConfigUtils;
-import org.apache.dubbo.common.utils.NamedThreadFactory;
+import org.apache.dubbo.rpc.AsyncRpcResult;
+import org.apache.dubbo.rpc.Constants;
 import org.apache.dubbo.rpc.Invocation;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Result;
 import org.apache.dubbo.rpc.RpcException;
 import org.apache.dubbo.rpc.RpcInvocation;
-import org.apache.dubbo.rpc.RpcResult;
 import org.apache.dubbo.rpc.cluster.Directory;
+import org.apache.dubbo.rpc.cluster.LoadBalance;
 import org.apache.dubbo.rpc.cluster.Merger;
 import org.apache.dubbo.rpc.cluster.merger.MergerFactory;
+import org.apache.dubbo.rpc.model.ApplicationModel;
+import org.apache.dubbo.rpc.model.ScopeModelUtil;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Method;
@@ -40,70 +41,92 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-@SuppressWarnings("unchecked")
-public class MergeableClusterInvoker<T> implements Invoker<T> {
+import static org.apache.dubbo.rpc.Constants.MERGER_KEY;
 
-    private static final Logger log = LoggerFactory.getLogger(MergeableClusterInvoker.class);
-    private final Directory<T> directory;
-    private ExecutorService executor = Executors.newCachedThreadPool(new NamedThreadFactory("mergeable-cluster-executor", true));
+/**
+ * @param <T>
+ */
+@SuppressWarnings("unchecked")
+public class MergeableClusterInvoker<T> extends AbstractClusterInvoker<T> {
+
+    private static final ErrorTypeAwareLogger log =
+            LoggerFactory.getErrorTypeAwareLogger(MergeableClusterInvoker.class);
 
     public MergeableClusterInvoker(Directory<T> directory) {
-        this.directory = directory;
+        super(directory);
     }
 
     @Override
-    @SuppressWarnings("rawtypes")
-    public Result invoke(final Invocation invocation) throws RpcException {
-        List<Invoker<T>> invokers = directory.list(invocation);
-
-        String merger = getUrl().getMethodParameter(invocation.getMethodName(), Constants.MERGER_KEY);
+    protected Result doInvoke(Invocation invocation, List<Invoker<T>> invokers, LoadBalance loadbalance)
+            throws RpcException {
+        String merger = getUrl().getMethodParameter(invocation.getMethodName(), MERGER_KEY);
         if (ConfigUtils.isEmpty(merger)) { // If a method doesn't have a merger, only invoke one Group
             for (final Invoker<T> invoker : invokers) {
                 if (invoker.isAvailable()) {
-                    return invoker.invoke(invocation);
+                    try {
+                        return invokeWithContext(invoker, invocation);
+                    } catch (RpcException e) {
+                        if (e.isNoInvokerAvailableAfterFilter()) {
+                            log.debug(
+                                    "No available provider for service" + getUrl().getServiceKey() + " on group "
+                                            + invoker.getUrl().getGroup() + ", will continue to try another group.",
+                                    e);
+                        } else {
+                            throw e;
+                        }
+                    }
                 }
             }
-            return invokers.iterator().next().invoke(invocation);
+            return invokeWithContext(invokers.iterator().next(), invocation);
         }
 
         Class<?> returnType;
         try {
-            returnType = getInterface().getMethod(
-                    invocation.getMethodName(), invocation.getParameterTypes()).getReturnType();
+            returnType = getInterface()
+                    .getMethod(invocation.getMethodName(), invocation.getParameterTypes())
+                    .getReturnType();
         } catch (NoSuchMethodException e) {
             returnType = null;
         }
 
-        Map<String, Future<Result>> results = new HashMap<String, Future<Result>>();
+        Map<String, Result> results = new HashMap<>();
         for (final Invoker<T> invoker : invokers) {
-            Future<Result> future = executor.submit(new Callable<Result>() {
-                @Override
-                public Result call() throws Exception {
-                    return invoker.invoke(new RpcInvocation(invocation, invoker));
+            RpcInvocation subInvocation = new RpcInvocation(invocation, invoker);
+            subInvocation.setAttachment(Constants.ASYNC_KEY, "true");
+            try {
+                results.put(invoker.getUrl().getServiceKey(), invokeWithContext(invoker, subInvocation));
+            } catch (RpcException e) {
+                if (e.isNoInvokerAvailableAfterFilter()) {
+                    log.warn(
+                            LoggerCodeConstants.CLUSTER_NO_VALID_PROVIDER,
+                            e.getCause().getMessage(),
+                            "",
+                            "No available provider for service" + getUrl().getServiceKey() + " on group "
+                                    + invoker.getUrl().getGroup() + ", will continue to try another group.",
+                            e);
+                } else {
+                    throw e;
                 }
-            });
-            results.put(invoker.getUrl().getServiceKey(), future);
+            }
         }
 
-        Object result = null;
+        Object result;
 
-        List<Result> resultList = new ArrayList<Result>(results.size());
+        List<Result> resultList = new ArrayList<>(results.size());
 
-        int timeout = getUrl().getMethodParameter(invocation.getMethodName(), Constants.TIMEOUT_KEY, Constants.DEFAULT_TIMEOUT);
-        for (Map.Entry<String, Future<Result>> entry : results.entrySet()) {
-            Future<Result> future = entry.getValue();
+        for (Map.Entry<String, Result> entry : results.entrySet()) {
+            Result asyncResult = entry.getValue();
             try {
-                Result r = future.get(timeout, TimeUnit.MILLISECONDS);
+                Result r = asyncResult.get(Integer.MAX_VALUE, TimeUnit.MILLISECONDS);
                 if (r.hasException()) {
-                    log.error("Invoke " + getGroupDescFromServiceKey(entry.getKey()) + 
-                                    " failed: " + r.getException().getMessage(), 
-                            r.getException());
+                    log.error(
+                            LoggerCodeConstants.CLUSTER_FAILED_GROUP_MERGE,
+                            "Invoke " + getGroupDescFromServiceKey(entry.getKey()) + " failed: "
+                                    + r.getException().getMessage(),
+                            "",
+                            r.getException().getMessage());
                 } else {
                     resultList.add(r);
                 }
@@ -113,13 +136,13 @@ public class MergeableClusterInvoker<T> implements Invoker<T> {
         }
 
         if (resultList.isEmpty()) {
-            return new RpcResult((Object) null);
+            return AsyncRpcResult.newDefaultAsyncResult(invocation);
         } else if (resultList.size() == 1) {
-            return resultList.iterator().next();
+            return AsyncRpcResult.newDefaultAsyncResult(resultList.get(0).getValue(), invocation);
         }
 
         if (returnType == void.class) {
-            return new RpcResult((Object) null);
+            return AsyncRpcResult.newDefaultAsyncResult(invocation);
         }
 
         if (merger.startsWith(".")) {
@@ -127,9 +150,9 @@ public class MergeableClusterInvoker<T> implements Invoker<T> {
             Method method;
             try {
                 method = returnType.getMethod(merger, returnType);
-            } catch (NoSuchMethodException e) {
-                throw new RpcException("Can not merge result because missing method [ " + merger + " ] in class [ " + 
-                        returnType.getClass().getName() + " ]");
+            } catch (NoSuchMethodException | NullPointerException e) {
+                throw new RpcException("Can not merge result because missing method [ " + merger + " ] in class [ "
+                        + returnType.getName() + " ]");
             }
             if (!Modifier.isPublic(method.getModifiers())) {
                 method.setAccessible(true);
@@ -151,33 +174,33 @@ public class MergeableClusterInvoker<T> implements Invoker<T> {
             }
         } else {
             Merger resultMerger;
+            ApplicationModel applicationModel = ScopeModelUtil.getApplicationModel(
+                    invocation.getModuleModel().getApplicationModel());
+
             if (ConfigUtils.isDefault(merger)) {
-                resultMerger = MergerFactory.getMerger(returnType);
+                resultMerger = applicationModel
+                        .getBeanFactory()
+                        .getBean(MergerFactory.class)
+                        .getMerger(returnType);
             } else {
-                resultMerger = ExtensionLoader.getExtensionLoader(Merger.class).getExtension(merger);
+                resultMerger = applicationModel.getExtensionLoader(Merger.class).getExtension(merger);
             }
             if (resultMerger != null) {
-                List<Object> rets = new ArrayList<Object>(resultList.size());
+                List<Object> rets = new ArrayList<>(resultList.size());
                 for (Result r : resultList) {
                     rets.add(r.getValue());
                 }
-                result = resultMerger.merge(
-                        rets.toArray((Object[]) Array.newInstance(returnType, 0)));
+                result = resultMerger.merge(rets.toArray((Object[]) Array.newInstance(returnType, 0)));
             } else {
                 throw new RpcException("There is no merger to merge result.");
             }
         }
-        return new RpcResult(result);
+        return AsyncRpcResult.newDefaultAsyncResult(result, invocation);
     }
 
     @Override
     public Class<T> getInterface() {
         return directory.getInterface();
-    }
-
-    @Override
-    public URL getUrl() {
-        return directory.getUrl();
     }
 
     @Override

@@ -14,18 +14,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.alibaba.dubbo.rpc;
 
-import org.apache.dubbo.common.URL;
+import org.apache.dubbo.rpc.AsyncRpcResult;
+
+import com.alibaba.dubbo.common.DelegateURL;
+import com.alibaba.dubbo.common.URL;
 
 @Deprecated
 public interface Invoker<T> extends org.apache.dubbo.rpc.Invoker<T> {
 
+    Result invoke(Invocation invocation) throws RpcException;
+
     @Override
-    Result invoke(org.apache.dubbo.rpc.Invocation invocation) throws RpcException;
+    URL getUrl();
 
     default org.apache.dubbo.rpc.Invoker<T> getOriginal() {
+        return null;
+    }
+
+    // This method will never be called for a legacy invoker.
+    @Override
+    default org.apache.dubbo.rpc.Result invoke(org.apache.dubbo.rpc.Invocation invocation)
+            throws org.apache.dubbo.rpc.RpcException {
         return null;
     }
 
@@ -43,13 +54,32 @@ public interface Invoker<T> extends org.apache.dubbo.rpc.Invoker<T> {
         }
 
         @Override
-        public Result invoke(org.apache.dubbo.rpc.Invocation invocation) throws RpcException {
-            return new Result.CompatibleResult(invoker.invoke(((Invocation) invocation).getOriginal()));
+        public org.apache.dubbo.rpc.Result invoke(org.apache.dubbo.rpc.Invocation invocation)
+                throws org.apache.dubbo.rpc.RpcException {
+            return new Result.CompatibleResult(invoker.invoke(invocation));
+        }
+
+        @Override
+        public Result invoke(Invocation invocation) throws RpcException {
+            if (invoker instanceof Invoker) {
+                Result result = ((Invoker) invoker).invoke(invocation);
+                if (result instanceof Result.CompatibleResult) {
+                    return result;
+                } else {
+                    AsyncRpcResult asyncRpcResult = AsyncRpcResult.newDefaultAsyncResult(invocation.getOriginal());
+                    asyncRpcResult.setValue(result.getValue());
+                    asyncRpcResult.setException(result.getException());
+                    asyncRpcResult.setObjectAttachments(result.getObjectAttachments());
+
+                    return new Result.CompatibleResult(asyncRpcResult);
+                }
+            }
+            return new Result.CompatibleResult(invoker.invoke(invocation.getOriginal()));
         }
 
         @Override
         public URL getUrl() {
-            return invoker.getUrl();
+            return new DelegateURL(invoker.getUrl());
         }
 
         @Override
@@ -65,6 +95,22 @@ public interface Invoker<T> extends org.apache.dubbo.rpc.Invoker<T> {
         @Override
         public org.apache.dubbo.rpc.Invoker<T> getOriginal() {
             return invoker;
+        }
+
+        @Override
+        public int hashCode() {
+            return invoker.hashCode();
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof CompatibleInvoker)) {
+                return false;
+            }
+            return invoker.equals(o);
         }
     }
 }

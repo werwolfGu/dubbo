@@ -16,10 +16,10 @@
  */
 package org.apache.dubbo.remoting.telnet.codec;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.URL;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.common.utils.CollectionUtils;
 import org.apache.dubbo.common.utils.StringUtils;
 import org.apache.dubbo.remoting.Channel;
 import org.apache.dubbo.remoting.RemotingException;
@@ -33,53 +33,61 @@ import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.TRANSPORT_UNSUPPORTED_CHARSET;
+import static org.apache.dubbo.remoting.Constants.CHARSET_KEY;
+import static org.apache.dubbo.remoting.Constants.DEFAULT_CHARSET;
+
 /**
  * TelnetCodec
  */
 public class TelnetCodec extends TransportCodec {
 
-    private static final Logger logger = LoggerFactory.getLogger(TelnetCodec.class);
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(TelnetCodec.class);
 
     private static final String HISTORY_LIST_KEY = "telnet.history.list";
 
     private static final String HISTORY_INDEX_KEY = "telnet.history.index";
 
-    private static final byte[] UP = new byte[]{27, 91, 65};
+    private static final byte[] UP = new byte[] {27, 91, 65};
 
-    private static final byte[] DOWN = new byte[]{27, 91, 66};
+    private static final byte[] DOWN = new byte[] {27, 91, 66};
 
-    private static final List<?> ENTER = Arrays.asList(new Object[]{new byte[]{'\r', '\n'} /* Windows Enter */, new byte[]{'\n'} /* Linux Enter */});
+    private static final List<?> ENTER =
+            Arrays.asList(new byte[] {'\r', '\n'} /* Windows Enter */, new byte[] {'\n'} /* Linux Enter */);
 
-    private static final List<?> EXIT = Arrays.asList(new Object[]{new byte[]{3} /* Windows Ctrl+C */, new byte[]{-1, -12, -1, -3, 6} /* Linux Ctrl+C */, new byte[]{-1, -19, -1, -3, 6} /* Linux Pause */});
+    private static final List<?> EXIT = Arrays.asList(
+            new byte[] {3} /* Windows Ctrl+C */,
+            new byte[] {-1, -12, -1, -3, 6} /* Linux Ctrl+C */,
+            new byte[] {-1, -19, -1, -3, 6} /* Linux Pause */);
 
     private static Charset getCharset(Channel channel) {
         if (channel != null) {
-            Object attribute = channel.getAttribute(Constants.CHARSET_KEY);
+            Object attribute = channel.getAttribute(CHARSET_KEY);
             if (attribute instanceof String) {
                 try {
                     return Charset.forName((String) attribute);
                 } catch (Throwable t) {
-                    logger.warn(t.getMessage(), t);
+                    logger.warn(TRANSPORT_UNSUPPORTED_CHARSET, "", "", t.getMessage(), t);
                 }
             } else if (attribute instanceof Charset) {
                 return (Charset) attribute;
             }
             URL url = channel.getUrl();
             if (url != null) {
-                String parameter = url.getParameter(Constants.CHARSET_KEY);
-                if (parameter != null && parameter.length() > 0) {
+                String parameter = url.getParameter(CHARSET_KEY);
+                if (StringUtils.isNotEmpty(parameter)) {
                     try {
                         return Charset.forName(parameter);
                     } catch (Throwable t) {
-                        logger.warn(t.getMessage(), t);
+                        logger.warn(TRANSPORT_UNSUPPORTED_CHARSET, "", "", t.getMessage(), t);
                     }
                 }
             }
         }
         try {
-            return Charset.forName(Constants.DEFAULT_CHARSET);
+            return Charset.forName(DEFAULT_CHARSET);
         } catch (Throwable t) {
-            logger.warn(t.getMessage(), t);
+            logger.warn(TRANSPORT_UNSUPPORTED_CHARSET, "", "", t.getMessage(), t);
         }
         return Charset.defaultCharset();
     }
@@ -106,7 +114,8 @@ public class TelnetCodec extends TransportCodec {
                 } else if (i < message.length - 2) {
                     i = i + 2;
                 }
-            } else if (b == -1 && i < message.length - 2
+            } else if (b == -1
+                    && i < message.length - 2
                     && (message[i + 1] == -3 || message[i + 1] == -5)) { // handshake
                 i = i + 2;
             } else {
@@ -169,8 +178,10 @@ public class TelnetCodec extends TransportCodec {
 
         if (message[message.length - 1] == '\b') { // Windows backspace echo
             try {
-                boolean doublechar = message.length >= 3 && message[message.length - 3] < 0; // double byte char
-                channel.send(new String(doublechar ? new byte[]{32, 32, 8, 8} : new byte[]{32, 8}, getCharset(channel).name()));
+                boolean isDoubleChar = message.length >= 3 && message[message.length - 3] < 0; // double byte char
+                channel.send(new String(
+                        isDoubleChar ? new byte[] {32, 32, 8, 8} : new byte[] {32, 8},
+                        getCharset(channel).name()));
             } catch (RemotingException e) {
                 throw new IOException(StringUtils.toString(e));
             }
@@ -180,7 +191,8 @@ public class TelnetCodec extends TransportCodec {
         for (Object command : EXIT) {
             if (isEquals(message, (byte[]) command)) {
                 if (logger.isInfoEnabled()) {
-                    logger.info(new Exception("Close channel " + channel + " on exit command: " + Arrays.toString((byte[]) command)));
+                    logger.info(new Exception(
+                            "Close channel " + channel + " on exit command: " + Arrays.toString((byte[]) command)));
                 }
                 channel.close();
                 return null;
@@ -191,7 +203,7 @@ public class TelnetCodec extends TransportCodec {
         boolean down = endsWith(message, DOWN);
         if (up || down) {
             LinkedList<String> history = (LinkedList<String>) channel.getAttribute(HISTORY_LIST_KEY);
-            if (history == null || history.isEmpty()) {
+            if (CollectionUtils.isEmpty(history)) {
                 return DecodeResult.NEED_MORE_INPUT;
             }
             Integer index = (Integer) channel.getAttribute(HISTORY_INDEX_KEY);
@@ -218,15 +230,15 @@ public class TelnetCodec extends TransportCodec {
                     String ov = history.get(old);
                     StringBuilder buf = new StringBuilder();
                     for (int i = 0; i < ov.length(); i++) {
-                        buf.append("\b");
+                        buf.append('\b');
                     }
                     for (int i = 0; i < ov.length(); i++) {
-                        buf.append(" ");
+                        buf.append(' ');
                     }
                     for (int i = 0; i < ov.length(); i++) {
-                        buf.append("\b");
+                        buf.append('\b');
                     }
-                    value = buf.toString() + value;
+                    value = buf + value;
                 }
                 try {
                     channel.send(value);
@@ -258,7 +270,7 @@ public class TelnetCodec extends TransportCodec {
         LinkedList<String> history = (LinkedList<String>) channel.getAttribute(HISTORY_LIST_KEY);
         Integer index = (Integer) channel.getAttribute(HISTORY_INDEX_KEY);
         channel.removeAttribute(HISTORY_INDEX_KEY);
-        if (history != null && !history.isEmpty() && index != null && index >= 0 && index < history.size()) {
+        if (CollectionUtils.isNotEmpty(history) && index != null && index >= 0 && index < history.size()) {
             String value = history.get(index);
             if (value != null) {
                 byte[] b1 = value.getBytes();
@@ -271,7 +283,7 @@ public class TelnetCodec extends TransportCodec {
         String result = toString(message, getCharset(channel));
         if (result.trim().length() > 0) {
             if (history == null) {
-                history = new LinkedList<String>();
+                history = new LinkedList<>();
                 channel.setAttribute(HISTORY_LIST_KEY, history);
             }
             if (history.isEmpty()) {
@@ -286,5 +298,4 @@ public class TelnetCodec extends TransportCodec {
         }
         return result;
     }
-
 }

@@ -25,7 +25,7 @@ import org.apache.dubbo.rpc.protocol.AbstractProtocol;
 /**
  * MockProtocol is used for generating a mock invoker by URL and type on consumer side
  */
-final public class MockProtocol extends AbstractProtocol {
+public final class MockProtocol extends AbstractProtocol {
 
     @Override
     public int getDefaultPort() {
@@ -38,7 +38,7 @@ final public class MockProtocol extends AbstractProtocol {
     }
 
     @Override
-    public <T> Invoker<T> refer(Class<T> type, URL url) throws RpcException {
-        return new MockInvoker<T>(url);
+    public <T> Invoker<T> protocolBindingRefer(Class<T> type, URL url) throws RpcException {
+        return new MockInvoker<>(url, type);
     }
 }

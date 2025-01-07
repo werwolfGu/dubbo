@@ -14,9 +14,36 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.alibaba.dubbo.rpc;
+
+import org.apache.dubbo.rpc.ProtocolServer;
+
+import java.util.Collections;
+import java.util.List;
+
+import com.alibaba.dubbo.common.DelegateURL;
+import com.alibaba.dubbo.common.URL;
 
 @Deprecated
 public interface Protocol extends org.apache.dubbo.rpc.Protocol {
+
+    <T> Exporter<T> export(Invoker<T> invoker) throws RpcException;
+
+    <T> Invoker<T> refer(Class<T> aClass, URL url) throws RpcException;
+
+    @Override
+    default <T> org.apache.dubbo.rpc.Exporter<T> export(org.apache.dubbo.rpc.Invoker<T> invoker) throws RpcException {
+        return this.export(new Invoker.CompatibleInvoker<>(invoker));
+    }
+
+    @Override
+    default <T> org.apache.dubbo.rpc.Invoker<T> refer(Class<T> aClass, org.apache.dubbo.common.URL url)
+            throws RpcException {
+        return this.refer(aClass, new DelegateURL(url));
+    }
+
+    @Override
+    default List<ProtocolServer> getServers() {
+        return Collections.emptyList();
+    }
 }

@@ -14,26 +14,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.alibaba.dubbo.cache.support;
-
-import com.alibaba.dubbo.cache.Cache;
-import com.alibaba.dubbo.cache.CacheFactory;
-import com.alibaba.dubbo.common.Constants;
-import com.alibaba.dubbo.common.URL;
-import com.alibaba.dubbo.rpc.Invocation;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import com.alibaba.dubbo.cache.Cache;
+import com.alibaba.dubbo.cache.CacheFactory;
+import com.alibaba.dubbo.common.DelegateURL;
+import com.alibaba.dubbo.common.URL;
+import com.alibaba.dubbo.rpc.Invocation;
+
+import static org.apache.dubbo.common.constants.CommonConstants.METHOD_KEY;
+
 @Deprecated
 public abstract class AbstractCacheFactory implements CacheFactory {
 
-    private final ConcurrentMap<String, Cache> caches = new ConcurrentHashMap<String, Cache>();
+    private final ConcurrentMap<String, Cache> caches = new ConcurrentHashMap<>();
 
     @Override
     public Cache getCache(URL url, Invocation invocation) {
-        url = url.addParameter(Constants.METHOD_KEY, invocation.getMethodName());
+        url = url.addParameter(METHOD_KEY, invocation.getMethodName());
         String key = url.toFullString();
         Cache cache = caches.get(key);
         if (cache == null) {
@@ -46,7 +47,8 @@ public abstract class AbstractCacheFactory implements CacheFactory {
     protected abstract Cache createCache(URL url);
 
     @Override
-    public org.apache.dubbo.cache.Cache getCache(org.apache.dubbo.common.URL url, org.apache.dubbo.rpc.Invocation invocation) {
-        return getCache(new URL(url), new Invocation.CompatibleInvocation(invocation));
+    public org.apache.dubbo.cache.Cache getCache(
+            org.apache.dubbo.common.URL url, org.apache.dubbo.rpc.Invocation invocation) {
+        return getCache(new DelegateURL(url), new Invocation.CompatibleInvocation(invocation));
     }
 }

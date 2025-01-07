@@ -16,15 +16,17 @@
  */
 package org.apache.dubbo.rpc;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.Adaptive;
 import org.apache.dubbo.common.extension.SPI;
 
+import static org.apache.dubbo.common.extension.ExtensionScope.FRAMEWORK;
+import static org.apache.dubbo.rpc.Constants.PROXY_KEY;
+
 /**
  * ProxyFactory. (API/SPI, Singleton, ThreadSafe)
  */
-@SPI("javassist")
+@SPI(value = "javassist", scope = FRAMEWORK)
 public interface ProxyFactory {
 
     /**
@@ -33,7 +35,7 @@ public interface ProxyFactory {
      * @param invoker
      * @return proxy
      */
-    @Adaptive({Constants.PROXY_KEY})
+    @Adaptive({PROXY_KEY})
     <T> T getProxy(Invoker<T> invoker) throws RpcException;
 
     /**
@@ -42,7 +44,7 @@ public interface ProxyFactory {
      * @param invoker
      * @return proxy
      */
-    @Adaptive({Constants.PROXY_KEY})
+    @Adaptive({PROXY_KEY})
     <T> T getProxy(Invoker<T> invoker, boolean generic) throws RpcException;
 
     /**
@@ -54,7 +56,6 @@ public interface ProxyFactory {
      * @param url
      * @return invoker
      */
-    @Adaptive({Constants.PROXY_KEY})
+    @Adaptive({PROXY_KEY})
     <T> Invoker<T> getInvoker(T proxy, Class<T> type, URL url) throws RpcException;
-
 }

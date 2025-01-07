@@ -17,6 +17,7 @@
 package org.apache.dubbo.config.spring.action;
 
 import org.apache.dubbo.config.spring.api.DemoService;
+
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
@@ -30,5 +31,4 @@ public class DemoActionByAnnotation {
     public DemoService getDemoService() {
         return demoService;
     }
-
 }

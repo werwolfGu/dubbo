@@ -16,21 +16,21 @@
  */
 package org.apache.dubbo.remoting.buffer;
 
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 
-public class DirectChannelBufferTest extends AbstractChannelBufferTest {
+class DirectChannelBufferTest extends AbstractChannelBufferTest {
 
     private ChannelBuffer buffer;
 
     @Override
     protected ChannelBuffer newBuffer(int capacity) {
         buffer = ChannelBuffers.directBuffer(capacity);
-        Assert.assertEquals(0, buffer.writerIndex());
+        Assertions.assertEquals(0, buffer.writerIndex());
         return buffer;
     }
 
     @Override
     protected ChannelBuffer[] components() {
-        return new ChannelBuffer[]{buffer};
+        return new ChannelBuffer[] {buffer};
     }
 }
